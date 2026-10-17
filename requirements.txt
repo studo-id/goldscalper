@@ -1,0 +1,42 @@
+# GoldScalper runtime dependencies
+# Python 3.11+
+
+# --- Core / async ---
+pydantic>=2.7
+pydantic-settings>=2.3
+python-dotenv>=1.0
+orjson>=3.10
+
+# --- Web / API ---
+fastapi>=0.115
+uvicorn[standard]>=0.30
+websockets>=12.0
+httpx>=0.27
+bcrypt>=4.0
+PyJWT>=2.8
+
+# --- Data / storage ---
+sqlalchemy[asyncio]>=2.0
+asyncpg>=0.29
+redis>=5.0
+alembic>=1.13
+
+# --- Trading ---
+MetaTrader5>=5.0.45 ; sys_platform == "win32"
+
+# --- Notifications ---
+python-telegram-bot>=21.0
+
+# --- Numerics ---
+numpy>=1.26
+pandas>=2.2
+
+# --- Observability ---
+prometheus-client>=0.20
+python-json-logger>=2.0
+
+# --- Tooling (dev) ---
+pytest>=8.2
+pytest-asyncio>=0.23
+ruff>=0.5
+mypy>=1.10

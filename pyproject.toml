@@ -1,0 +1,31 @@
+[project]
+name = "goldscalper"
+version = "0.1.0"
+description = "Multi-agent AI scalping system for XAUUSD (SPK consensus engine)"
+requires-python = ">=3.11"
+readme = "README.md"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["."]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "ASYNC", "S"]
+ignore = ["S101", "S104"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S", "N"]
+"scripts/*" = ["S"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_unused_ignores = true
+warn_redundant_casts = true
+ignore_missing_imports = true
+plugins = ["pydantic.mypy"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-q"

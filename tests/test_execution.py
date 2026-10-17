@@ -1,0 +1,249 @@
+"""Tests for the execution layer (mock MT5)."""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime, timedelta
+
+from agents.state import utcnow
+from config.settings import settings
+from core.mt5_connector import SIDE_BUY, MockMT5Client, OrderRequest, Position
+from core.notifier import Notifier
+from execution.order_manager import OrderManager
+from execution.position_manager import PositionManager
+from spk.decision import ACTION_BUY, STRENGTH_STRONG, SPKDecision
+
+
+class FakeTradeRepo:
+    def __init__(self) -> None:
+        self.rows: list[dict] = []
+
+    async def open_trade(self, fields: dict) -> str:
+        self.rows.append(fields)
+        return "trade-1"
+
+
+def _decision(**kw: object) -> SPKDecision:
+    base: dict = {
+        "action": ACTION_BUY,
+        "strength": STRENGTH_STRONG,
+        "score": 3.0,
+        "confidence": 0.8,
+        "size": 0.20,
+        "sl": 2340.0,
+        "tp": 2360.0,
+        "entry": 2350.0,
+    }
+    base.update(kw)
+    return SPKDecision(**base)
+
+
+# --- order manager -------------------------------------------------------------
+
+
+async def test_order_manager_skips_hold() -> None:
+    om = OrderManager(client=MockMT5Client(), settings=settings)
+    assert await om.execute(_decision(action="HOLD", size=0.0)) is None
+
+
+async def test_order_manager_skips_zero_size() -> None:
+    om = OrderManager(client=MockMT5Client(), settings=settings)
+    result = await om.execute(_decision(size=0.0))
+    assert result is not None
+    assert result.ok is False
+    assert result.reason == "zero size"
+
+
+async def test_order_manager_executes_and_records() -> None:
+    client = MockMT5Client()
+    repo = FakeTradeRepo()
+    om = OrderManager(client=client, settings=settings, trade_repo=repo)
+    result = await om.execute(_decision())
+    assert result is not None and result.ok
+    assert result.ticket is not None
+    assert result.trade_id == "trade-1"
+    assert len(repo.rows) == 1
+    assert repo.rows[0]["direction"] == "BUY"
+    positions = await client.positions(settings.mt5_symbol)
+    assert len(positions) == 1
+    assert positions[0].sl == 2340.0
+    assert positions[0].tp == 2360.0
+
+
+async def test_order_manager_respects_max_positions() -> None:
+    from config.settings import Settings
+    client = MockMT5Client()
+    custom = Settings(max_open_positions=1)
+    om = OrderManager(client=client, settings=custom)
+    first = await om.execute(_decision())
+    assert first is not None and first.ok
+    second = await om.execute(_decision())
+    assert second is not None
+    assert second.ok is False
+    assert second.reason == "max open positions"
+
+
+class _EnabledNotifier(Notifier):
+    @property
+    def enabled(self) -> bool:
+        return True
+
+    async def send(self, text: str, *, parse_mode: str | None = "HTML") -> bool:
+        return True
+
+
+async def test_order_manager_smart_rescue_multiplier() -> None:
+    from config.settings import Settings
+    client = MockMT5Client()
+    custom = Settings(rescue_multiplier=1.35, rescue_min_distance_pips=10.0)
+    om = OrderManager(client=client, settings=custom)
+    first = await om.execute(_decision(entry=2350.0, size=0.20))
+    assert first is not None and first.ok
+    assert first.size == 0.20
+
+    # Second entry is lower than 2350 -> triggers Rescue Recovery Layer 2
+    second = await om.execute(_decision(entry=2348.0, size=0.20))
+    assert second is not None and second.ok
+    # 0.20 * 1.35 = 0.27 lot!
+    assert second.size == 0.27
+
+
+async def test_order_manager_notifies() -> None:
+    notifier = _EnabledNotifier()
+    om = OrderManager(client=MockMT5Client(), settings=settings, notifier=notifier)
+    result = await om.execute(_decision())
+    assert result is not None and result.ok
+
+
+async def test_order_manager_blocks_multi_entry_near_finish_line() -> None:
+    from agents.state import SharedState
+    client = MockMT5Client()
+    om = OrderManager(client=client, settings=settings)
+    # Open initial position
+    await om.execute(_decision(entry=2350.0))
+    # Second trade attempted when remaining target is <= $20
+    state = SharedState(extra={"remaining_target_usd": 15.0})
+    result = await om.execute(_decision(entry=2345.0), state=state)
+    assert result is not None
+    assert result.ok is False
+    assert "finish line proximity" in (result.reason or "")
+
+
+async def test_order_manager_blocks_pyramid_during_drawdown() -> None:
+    from agents.state import SharedState
+    client = MockMT5Client()
+    om = OrderManager(client=client, settings=settings)
+    # Open initial BUY position at 2350
+    await om.execute(_decision(entry=2350.0))
+    # Attempt pyramid BUY at 2355 (higher than 2350) while in drawdown (-3.0%)
+    state = SharedState(daily_pnl_pct=-3.0)
+    result = await om.execute(_decision(entry=2355.0), state=state)
+    assert result is not None
+    assert result.ok is False
+    assert "pyramid prohibited during drawdown" in (result.reason or "")
+
+
+
+# --- position manager ----------------------------------------------------------
+
+
+async def _open_position(client: MockMT5Client, sl: float, volume: float = 1.0):
+    await client.order_send(
+        OrderRequest(
+            symbol="XAUUSD",
+            side=SIDE_BUY,
+            volume=volume,
+            sl=sl,
+            tp=sl + 100,
+            magic=settings.mt5_magic,
+        )
+    )
+    return (await client.positions("XAUUSD"))[0]
+
+
+async def test_position_manager_breakeven_and_partial() -> None:
+    client = MockMT5Client()
+    pm = PositionManager(client=client, settings=settings)
+    pos_sl = pos_sl_fn()
+    pos = await _open_position(client, sl=pos_sl)
+    entry = pos.price_open
+    r = abs(entry - pos_sl)
+    actions = await pm.manage(pos, entry + 1.05 * r)
+    assert "breakeven" in actions
+    assert "partial_tp" in actions
+    refreshed = (await client.positions("XAUUSD"))[0]
+    assert refreshed.sl >= entry
+    assert refreshed.volume < 1.0
+
+
+async def test_position_manager_stagnant_harvest() -> None:
+    client = MockMT5Client()
+    pm = PositionManager(client=client, settings=settings)
+    pos = await _open_position(client, sl=pos_sl_fn())
+    pos.profit = 2.50  # floating profit above stagnant_min_profit_usd
+    future = utcnow() + timedelta(seconds=settings.stagnant_harvest_seconds + 5)
+    actions = await pm.manage(pos, pos.price_open + 0.50, now=future)
+    assert "stagnant_harvest" in actions
+    assert await client.positions("XAUUSD") == []
+
+
+async def test_position_manager_time_stop() -> None:
+    client = MockMT5Client()
+    pm = PositionManager(client=client, settings=settings)
+    pos = await _open_position(client, sl=pos_sl_fn())
+    future = utcnow() + timedelta(seconds=settings.max_hold_seconds + 10)
+    actions = await pm.manage(pos, pos.price_open, now=future)
+    assert actions == ["time_stop"]
+    assert await client.positions("XAUUSD") == []
+
+
+def pos_sl_fn() -> float:
+    # A fixed reference stop; the actual fill is near 2350 so 1R ~ 10.
+    return 2340.0
+
+
+async def test_position_manager_no_r_no_action() -> None:
+    client = MockMT5Client()
+    pm = PositionManager(client=client, settings=settings)
+    pos = await _open_position(client, sl=pos_sl_fn())
+    pos.sl = None
+    actions = await pm.manage(pos, pos.price_open)
+    assert actions == []
+
+
+async def test_position_manager_manage_basket_pyramid_protects_runners() -> None:
+    client = MockMT5Client()
+    pm = PositionManager(client=client, settings=settings)
+    now = utcnow()
+    # Layer 1 entered at 2350, Layer 2 entered higher at 2352 (pyramiding in profit)
+    pos1 = Position(ticket=101, symbol="XAUUSD", side=SIDE_BUY, volume=0.01, price_open=2350.0, price_current=2352.5, profit=2.5, time=now - timedelta(seconds=60))
+    pos2 = Position(ticket=102, symbol="XAUUSD", side=SIDE_BUY, volume=0.01, price_open=2352.0, price_current=2352.5, profit=0.5, time=now)
+    
+    # Even though price 2352.5 > avg_entry 2351.0 + buffer, total profit is $3.0 < $7.50 pyramid runner target
+    actions = await pm.manage_basket([pos1, pos2], current_bid=2352.5, current_ask=2352.7)
+    assert actions == []  # Pyramid runners are protected!
+
+    # When total profit reaches runner target >= $7.50:
+    pos1.profit = 5.5
+    pos2.profit = 2.5
+    actions_harvest = await pm.manage_basket([pos1, pos2], current_bid=2355.0, current_ask=2355.2)
+    assert "basket_tp" in actions_harvest
+
+
+async def test_position_manager_overnight_flat_cutoff() -> None:
+    client = MockMT5Client()
+    pm = PositionManager(client=client, settings=settings)
+    open_time = datetime(2026, 1, 5, 14, 0, tzinfo=UTC)
+    now_2105 = datetime(2026, 1, 5, 21, 5, tzinfo=UTC)
+    pos = Position(ticket=201, symbol="XAUUSD", side=SIDE_BUY, volume=0.01, price_open=2350.0, price_current=2351.0, profit=1.0, time=open_time)
+    
+    actions = await pm.manage(pos, price=2351.0, now=now_2105)
+    assert "overnight_flat_cutoff" in actions
+    assert client.positions == []
+
+
+async def test_notifier_disabled_is_noop() -> None:
+    notifier = Notifier()
+    assert notifier.enabled is False
+    assert await notifier.send("hello") is False
+    assert await notifier.alert("danger") is False
+    assert notifier.sent == 0

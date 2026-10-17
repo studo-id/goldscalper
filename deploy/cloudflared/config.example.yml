@@ -1,0 +1,30 @@
+# Cloudflare Tunnel — GoldScalper
+#
+# Two ways to expose `scalper.7pivot.site` → the bot on http://bot:9090:
+#
+#   (A) Token-based  [RECOMMENDED, matches the existing 9router setup]
+#       Created via Cloudflare Zero Trust dashboard. No file mounted; the
+#       docker-compose `tunnel` service uses:
+#           tunnel --no-autoupdate run --token ${TUNNEL_TOKEN}
+#       Set TUNNEL_TOKEN in .env.
+#
+#   (B) Named tunnel with a local config + credentials file  [this template]
+#       Copy this file to `config.yml`, drop your tunnel credentials JSON next
+#       to it, then mount ./deploy/cloudflared into the container and switch
+#       the compose command to:
+#           tunnel --no-autoupdate --config /etc/cloudflared/config.yml run
+#
+# -----------------------------------------------------------------------------
+tunnel: REPLACE_WITH_TUNNEL_UUID
+credentials-file: /etc/cloudflared/REPLACE_WITH_TUNNEL_UUID.json
+
+ingress:
+  # Public hostname → local bot API + WebSocket
+  - hostname: scalper.7pivot.site
+    service: http://bot:9090
+    originRequest:
+      noTLSVerify: true
+      connectTimeout: 30s
+
+  # Catch-all (required, must be last)
+  - service: http_status:404
