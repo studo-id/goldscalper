@@ -1,0 +1,2 @@
+# goldscalper
+Bot Gold Scalper
