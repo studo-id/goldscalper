@@ -6,7 +6,7 @@ except ImportError:
     UTC = timezone.utc
 
 from agents.base import AgentSignal
-from agents.state import VETO_BUY, VETO_SELL, SharedState
+from agents.state import VETO_ALL, VETO_BUY, VETO_SELL, SharedState
 from spk.decision import ACTION_BUY, ACTION_SELL
 from spk.veto import VetoParams, evaluate
 
@@ -19,6 +19,17 @@ def test_hard_veto_blocks_matching_direction() -> None:
     result = evaluate([_veto_sig(VETO_BUY)], SharedState(), ACTION_BUY)
     assert result.hard is True
     assert "blocked" in (result.reason or "")
+
+
+def test_veto_all_blocks_both_buy_and_sell() -> None:
+    sig = AgentSignal(agent_id="Tech-SupportResistance", division="technical", vote=0, confidence=0.85, veto=VETO_ALL, reasoning="mid dead zone")
+    res_buy = evaluate([sig], SharedState(), ACTION_BUY)
+    assert res_buy.hard is True
+    assert "blocked trade in M1 mid-range dead zone" in (res_buy.reason or "")
+
+    res_sell = evaluate([sig], SharedState(), ACTION_SELL)
+    assert res_sell.hard is True
+    assert "blocked trade in M1 mid-range dead zone" in (res_sell.reason or "")
 
 
 def test_veto_does_not_affect_opposite_direction() -> None:

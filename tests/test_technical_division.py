@@ -18,7 +18,7 @@ from agents.divisions.technical import (
     Volume,
     build_technical_agents,
 )
-from agents.state import VETO_BUY, VETO_SELL, VOTE_BUY, VOTE_NEUTRAL, VOTE_SELL, SharedState
+from agents.state import VETO_ALL, VETO_BUY, VETO_SELL, VOTE_BUY, VOTE_NEUTRAL, VOTE_SELL, SharedState
 from core.market_data import Candle, tf_seconds
 
 BASE = datetime(2026, 1, 5, 0, 0, tzinfo=UTC)
@@ -170,6 +170,24 @@ async def test_support_resistance_m1_micro_resistance_veto_buy() -> None:
     assert sig.veto == VETO_BUY
     assert "veto BUY" in sig.reasoning
     assert sig.metadata.get("micro_sr_event") == "AT_MICRO_RESISTANCE"
+
+
+async def test_support_resistance_m1_mid_dead_zone_veto_all() -> None:
+    # M5 frames in range (2345 to 2365, close at 2355.0)
+    m5_rows = [(2355, 2365, 2345, 2355) for _ in range(20)]
+    # M1 frames range 2350 to 2360 (span = 10.0, support = 2350, resistance = 2360)
+    # Current close at 2355.0 is right at 50% (mid-channel dead zone)!
+    m1_rows = [(2355, 2360.0, 2350.0, 2355.0) for _ in range(20)]
+    
+    st = state(frames={"M5": _frame("M5", m5_rows), "M1": _frame("M1", m1_rows)})
+    sig = await SupportResistance().evaluate(st)
+    
+    # Must activate hard VETO_ALL to prevent any entries inside the mid-channel chop!
+    assert sig.veto == VETO_ALL
+    assert sig.vote == VOTE_NEUTRAL
+    assert "veto all entries" in sig.reasoning
+    assert sig.metadata.get("micro_sr_event") == "M1_MID_DEAD_ZONE"
+    assert sig.metadata.get("m1_pos_pct") == 0.5
 
 
 async def test_pattern_bullish_engulfing() -> None:

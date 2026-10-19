@@ -35,6 +35,46 @@ Aturan singkat:
 
 ---
 
+## 2026-10-20 — Grade AAA M1 Ping-Pong Architecture: Strict 3-Zone Anti-Chasing & Mid-Channel Dead Zone Veto (VETO_ALL)
+
+**Phase / Area:** SPK Veto Engine & Technical S/R Architecture (`agents/divisions/technical/agents.py`, `spk/veto.py`, `agents/state.py`, `agents/base.py`, `config/settings.py`)
+**Status:** Done
+
+**Yang dikerjakan**
+- **Mengeliminasi Trade Chop di Tengah Range M1 (The 30/40/30 Rule):**
+  1. **Investigasi Masalah Entry Tengah M1:**
+     - Analisis transaksi tiket `#4897727206` (SELL @ 4142.71): Harga berada di antara support M1 ($4141.50) dan resisten M1 ($4144.50), sekitar 40.3% dari range span ($3.00). Karena harga berada tipis $0.01 di atas buffer support ($1.20), sistem menganggapnya "Mid-Channel / Scalping Permitted" dan membiarkan sinyal SELL tren M5 mengeksekusi SELL di paruh bawah channel, tepat sebelum harga memantul naik.
+  2. **Penerapan Strict 3-Zone Ping-Pong M1:**
+     - **Upper 30% (`pos_pct >= 0.70` atau near resistance ceiling):** HANYA boleh **SELL** (Ping). VETO BUY mutlak (`VETO_BUY`).
+     - **Lower 30% (`pos_pct <= 0.30` atau near support floor):** HANYA boleh **BUY** (Pong). VETO SELL mutlak (`VETO_SELL`).
+     - **Middle 40% (`0.30 < pos_pct < 0.70`):** **DEAD ZONE / CHOP**. Diberlakukan **HARD VETO KEDUA ARAH (`VETO_ALL`)**.
+  3. **Pengenalan Flag Universal `VETO_ALL`:**
+     - Ditambahkan ke `agents/state.py`, diekspor oleh `agents/base.py`.
+     - `spk/veto.py` mengidentifikasi `VETO_ALL` sebagai Hard Barrier mutlak (`hard=True`), sehingga baik SPK memutuskan BUY maupun SELL, order baru seketika dibatalkan (HOLD).
+     - Breakout/breakdown terkonfirmasi di luar buffer tetap diizinkan sebagai momentum trade.
+  4. **Pengaturan Konfigurasi Terpusat:**
+     - `micro_sr_dead_zone_enabled: bool = True`
+     - `micro_sr_dead_zone_max_span: float = 12.00` (USD)
+  5. **Pengujian Unit:**
+     - Penambahan unit test `test_support_resistance_m1_mid_dead_zone_veto_all()` di `tests/test_technical_division.py`.
+     - Penambahan unit test `test_veto_all_blocks_both_buy_and_sell()` di `tests/test_spk_veto.py`.
+     - Seluruh 48 unit tests lulus (100%).
+
+**File tersentuh**
+- `agents/state.py` — Penambahan konstanta `VETO_ALL = "VETO_ALL"`.
+- `agents/base.py` — Impor dan ekspor `VETO_ALL` dalam `__all__`, perbaikan lint unnecessary `int()`.
+- `spk/veto.py` — Pengenalan penanganan `VETO_ALL` sebagai hard barrier instan.
+- `config/settings.py` — Penambahan `micro_sr_dead_zone_enabled` dan `micro_sr_dead_zone_max_span`.
+- `agents/divisions/technical/agents.py` — Pembagian 3-zone (30/40/30) pada evaluasi M1 `SupportResistance`.
+- `tests/test_technical_division.py` — Penambahan test mid dead zone.
+- `tests/test_spk_veto.py` — Penambahan test `VETO_ALL` buy & sell blocker.
+
+**Verifikasi**
+- `python -m pytest tests/test_spk_veto.py tests/test_technical_division.py` → 48 passed in 0.25s.
+- `python -m pytest tests/test_agents_base.py tests/test_orchestrator.py tests/test_fundamental_division.py` → 27 passed in 0.23s.
+
+---
+
 ## 2026-10-20 — Juggler Loss Clamp Hard Ceiling, Scalper Lot Cap & MT5 Connector Lint Fixes
 
 **Phase / Area:** The Juggler Dynamic Clamp & Execution (`execution/position_manager.py`, `agents/divisions/risk/agents.py`, `core/mt5_connector.py`, `config/settings.py`)

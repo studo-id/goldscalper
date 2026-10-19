@@ -19,7 +19,7 @@ from datetime import timezone
 UTC = timezone.utc
 
 from agents.base import AgentSignal
-from agents.state import VETO_BUY, VETO_SELL, SharedState
+from agents.state import VETO_ALL, VETO_BUY, VETO_SELL, SharedState
 from config.settings import settings as default_settings
 from spk.decision import ACTION_BUY, ACTION_SELL
 
@@ -71,7 +71,14 @@ def evaluate(
     )
 
     for sig in signals:
-        if sig.veto == blocking_flag:
+        if sig.veto in (blocking_flag, VETO_ALL):
+            if sig.veto == VETO_ALL:
+                return VetoResult(
+                    hard=True,
+                    reason=f"HARD BARRIER: {sig.agent_id} blocked trade in M1 mid-range dead zone ({sig.reasoning})",
+                    notes=[f"{sig.agent_id}:VETO_ALL:barrier"],
+                )
+
             # Critical S/R Wall & Liquidity Sweep Protection (Hard Barrier)
             # High-confidence resistance/support rejection or BSL/SSL sweeps must NEVER be softened!
             is_sr_barrier = (

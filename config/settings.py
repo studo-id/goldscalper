@@ -145,6 +145,13 @@ class Settings(BaseSettings):
     watchdog_early_loss_ratio: float = 0.40     # Cut loss early at 40% of clamp if M1+M5 adverse
     fast_breakeven_pips: float = 12.0           # Scalper BE lock distance (pips on XAUUSD)
 
+    # --- Micro S/R & M1 Anti-Chasing Dead Zone Protection ---
+    micro_sr_veto_enabled: bool = True
+    micro_sr_lookback_m1: int = 20
+    micro_sr_confirm_range_usd: float = 1.20
+    micro_sr_dead_zone_enabled: bool = True
+    micro_sr_dead_zone_max_span: float = 12.00  # Max M1 span (USD) to enforce 30/40/30 dead zone
+
     # --- BizDev: Rebate & Friction Engine ---
     bizdev_enabled: bool = True
     rebate_per_lot_usd: float = 6.00         # Estimated IB rebate per lot on XAUUSD

@@ -14,7 +14,7 @@ from typing import Any
 
 from agents.base import AgentSignal
 from agents.divisions.technical.base import TechnicalAgent
-from agents.state import VETO_BUY, VETO_SELL, VOTE_BUY, VOTE_NEUTRAL, VOTE_SELL, SharedState
+from agents.state import VETO_ALL, VETO_BUY, VETO_SELL, VOTE_BUY, VOTE_NEUTRAL, VOTE_SELL, SharedState
 from config.settings import Settings, settings as default_settings
 from core.indicators import atr, bollinger, ema_last, ema_series, macd, mean, rsi_last, wick_stats
 
@@ -143,6 +143,8 @@ class SupportResistance(TechnicalAgent):
         self.micro_enabled: bool = getattr(self.s, "micro_sr_veto_enabled", True)
         self.micro_lookback: int = getattr(self.s, "micro_sr_lookback_m1", 20)
         self.confirm_range_usd: float = getattr(self.s, "micro_sr_confirm_range_usd", 1.20)
+        self.dead_zone_enabled: bool = getattr(self.s, "micro_sr_dead_zone_enabled", True)
+        self.dead_zone_max_span: float = getattr(self.s, "micro_sr_dead_zone_max_span", 12.00)
 
     async def evaluate(self, state: SharedState) -> AgentSignal:
         b = self.bars(state)
@@ -185,9 +187,10 @@ class SupportResistance(TechnicalAgent):
             "sideways_range": sideways,
         }
 
-        # --- M1 Local Micro-SR & Anti-Chasing Veto Protection ---
-        # Detects local swing lows and swing highs on M1 within the recent lookback window
-        # to prevent chasing into local support (bottom SELL) or local resistance (peak BUY).
+        # --- M1 Local Micro-SR & Strict 3-Zone Anti-Chasing Veto Protection ---
+        # Detects local swing lows and swing highs on M1 within the recent lookback window.
+        # Divides M1 range into 3 strict zones (30% Support Pong / 40% Dead Zone / 30% Resistance Ping)
+        # to prevent chasing entries in the choppy mid-channel.
         if self.micro_enabled:
             b_m1 = self.bars(state, "M1")
             if b_m1.n >= 10:
@@ -195,43 +198,23 @@ class SupportResistance(TechnicalAgent):
                 m1_support = min(b_m1.lows[m1_win])
                 m1_resistance = max(b_m1.highs[m1_win])
                 buf = float(self.confirm_range_usd)
+                m1_span = max(0.1, m1_resistance - m1_support)
+                pos_pct = max(0.0, min(1.0, (close - m1_support) / m1_span))
 
                 meta["m1_support"] = round(m1_support, 2)
                 meta["m1_resistance"] = round(m1_resistance, 2)
+                meta["m1_span"] = round(m1_span, 2)
+                meta["m1_pos_pct"] = round(pos_pct, 3)
                 meta["confirm_range_usd"] = round(buf, 2)
 
                 if hasattr(state, "extra") and isinstance(state.extra, dict):
                     state.extra["m1_support"] = m1_support
                     state.extra["m1_resistance"] = m1_resistance
+                    state.extra["m1_span"] = m1_span
+                    state.extra["m1_pos_pct"] = pos_pct
                     state.extra["m1_confirm_range_usd"] = buf
 
-                # 1. Micro-Support Zone Protection:
-                # If price is at or near M1 local support floor within confirmation buffer:
-                # Strictly VETO SELL to prevent selling at the bottom of the dip!
-                if (m1_support - buf) <= close <= (m1_support + buf):
-                    meta["micro_sr_event"] = "AT_MICRO_SUPPORT"
-                    return self.signal(
-                        VOTE_BUY,
-                        0.80,
-                        f"price in M1 micro-support zone (${m1_support:.2f} +/- ${buf:.2f}), veto SELL",
-                        meta,
-                        veto=VETO_SELL,
-                    )
-
-                # 2. Micro-Resistance Zone Protection:
-                # If price is at or near M1 local resistance ceiling within confirmation buffer:
-                # Strictly VETO BUY to prevent buying at the peak!
-                if (m1_resistance - buf) <= close <= (m1_resistance + buf):
-                    meta["micro_sr_event"] = "AT_MICRO_RESISTANCE"
-                    return self.signal(
-                        VOTE_SELL,
-                        0.80,
-                        f"price in M1 micro-resistance zone (${m1_resistance:.2f} +/- ${buf:.2f}), veto BUY",
-                        meta,
-                        veto=VETO_BUY,
-                    )
-
-                # 3. Confirmed M1 Breakout / Breakdown (Outside confirmation range):
+                # 1. Confirmed M1 Breakout / Breakdown (Outside confirmation buffer):
                 if close < (m1_support - buf):
                     meta["micro_sr_event"] = "CONFIRMED_MICRO_BREAKDOWN"
                     return self.signal(
@@ -247,6 +230,47 @@ class SupportResistance(TechnicalAgent):
                         0.80,
                         f"confirmed M1 breakout above micro-resistance (${m1_resistance:.2f} + ${buf:.2f})",
                         meta,
+                    )
+
+                # 2. Lower 30% (Support Pong Zone):
+                # Price is at or near M1 local support floor:
+                # Strictly VETO SELL to prevent selling at the bottom! BUY only!
+                if pos_pct <= 0.30 or (m1_support - buf) <= close <= (m1_support + buf):
+                    meta["micro_sr_event"] = "AT_MICRO_SUPPORT"
+                    return self.signal(
+                        VOTE_BUY,
+                        0.80,
+                        f"price in M1 lower support zone (${m1_support:.2f} +/- ${buf:.2f}, {pos_pct*100:.1f}%), veto SELL",
+                        meta,
+                        veto=VETO_SELL,
+                    )
+
+                # 3. Upper 30% (Resistance Ping Zone):
+                # Price is at or near M1 local resistance ceiling:
+                # Strictly VETO BUY to prevent buying at the peak! SELL only!
+                if pos_pct >= 0.70 or (m1_resistance - buf) <= close <= (m1_resistance + buf):
+                    meta["micro_sr_event"] = "AT_MICRO_RESISTANCE"
+                    return self.signal(
+                        VOTE_SELL,
+                        0.80,
+                        f"price in M1 upper resistance zone (${m1_resistance:.2f} +/- ${buf:.2f}, {pos_pct*100:.1f}%), veto BUY",
+                        meta,
+                        veto=VETO_BUY,
+                    )
+
+                # 4. Middle 40% (Dead / No-Trade Zone):
+                # When inside consolidating/normal M1 range (span <= dead_zone_max_span):
+                # Strictly VETO ALL ENTRIES (both BUY and SELL) to prevent chop whipsaw!
+                if self.dead_zone_enabled and (m1_span <= self.dead_zone_max_span or sideways):
+                    meta["micro_sr_event"] = "M1_MID_DEAD_ZONE"
+                    if hasattr(state, "extra") and isinstance(state.extra, dict):
+                        state.extra["m1_dead_zone"] = True
+                    return self.signal(
+                        VOTE_NEUTRAL,
+                        0.85,
+                        f"price in M1 mid-range dead zone ({pos_pct*100:.1f}% of ${m1_span:.2f} range: ${m1_support:.2f} - ${m1_resistance:.2f}), veto all entries",
+                        meta,
+                        veto=VETO_ALL,
                     )
 
         if sideways:

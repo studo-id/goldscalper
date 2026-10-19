@@ -14,6 +14,7 @@ from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from agents.state import (
+    VETO_ALL,
     VETO_BUY,
     VETO_SELL,
     VOTE_NEUTRAL,
@@ -26,7 +27,7 @@ if TYPE_CHECKING:  # avoid runtime import cycle
 
 _logger = logging.getLogger(__name__)
 
-__all__ = ["AgentSignal", "BaseAgent", "VOTE_NEUTRAL", "VETO_BUY", "VETO_SELL"]
+__all__ = ["AgentSignal", "BaseAgent", "VOTE_NEUTRAL", "VETO_BUY", "VETO_SELL", "VETO_ALL"]
 
 
 @dataclass
@@ -46,7 +47,7 @@ class AgentSignal:
     ts: Any = field(default_factory=utcnow)
 
     def __post_init__(self) -> None:
-        self.vote = max(-1, min(1, int(self.vote)))
+        self.vote = max(-1, min(1, self.vote))
         self.confidence = max(0.0, min(1.0, float(self.confidence)))
         self.weight = max(0.0, float(self.weight))
 

@@ -21,6 +21,7 @@ VOTE_BUY = 1
 # Veto flags
 VETO_BUY = "VETO_BUY"
 VETO_SELL = "VETO_SELL"
+VETO_ALL = "VETO_ALL"
 
 
 def utcnow() -> datetime:
