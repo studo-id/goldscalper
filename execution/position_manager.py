@@ -137,11 +137,9 @@ def evaluate_multi_tf_watchdogs(pos_direction: str, context: dict[str, Any] | No
     # Time extension permission: HTF is supporting and M5 structure has not broken against us
     can_extend_time = (htf_verdict == "SUPPORTING" and m5_verdict != "OPPOSING")
 
-    # Invalidation alert: M1 and M5 both oppose, or M1 opposes with high confidence (>= 0.70)
-    invalidation_alert = (
-        (m1_verdict == "OPPOSING" and m5_verdict == "OPPOSING")
-        or (m1_verdict == "OPPOSING" and m1_opp_conf >= 0.70)
-    )
+    # Invalidation alert: M1 and M5 must BOTH oppose our position.
+    # If M5 is SUPPORTING, we do NOT cut early — we allow the M5 candle pattern to play out for reversal!
+    invalidation_alert = (m1_verdict == "OPPOSING" and m5_verdict == "OPPOSING")
 
     return {
         "m1": {"score": m1_score, "verdict": m1_verdict, "opposing_conf": m1_opp_conf},
@@ -336,7 +334,11 @@ class PositionManager:
             # 6. Phase 4: Duration Stagnation Cut (90s - 150s with no reversal momentum)
             elif state.opened_at is not None and held >= 90:
                 duration_loss_limit = max(2.50, round(effective_clamp_usd * 0.60, 2))
-                if current_loss <= -duration_loss_limit and htf_bias["verdict"] != "HTF_SUPPORTING":
+                if (
+                    current_loss <= -duration_loss_limit
+                    and htf_bias["verdict"] != "HTF_SUPPORTING"
+                    and watchdogs["m5"]["verdict"] != "SUPPORTING"
+                ):
                     log.info(
                         "JUGGLER DURATION-LOSS CUT: Ticket %s held %ds with loss=%.2f <= -$%.2f (momentum stalled)",
                         pos.ticket,

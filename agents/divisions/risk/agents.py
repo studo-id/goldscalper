@@ -128,22 +128,29 @@ class PositionSizer(RiskAgent):
                 or float(extra.get("spk_score", 0.0) or 0.0) >= 5.0
             )
 
+            # Target pursuit demand factor: when chasing daily sprint target, quantify the pull
+            target_urgency = min(1.35, max(1.0, round(remaining_usd / max(1.0, target_usd * 0.5), 3)))
+
             if daily_pnl_pct < 0:
-                # DEFENSE: shrink lot proportionally to drawdown depth to protect equity
+                # DEFENSE: baseline shrinks proportionally to protect equity
                 mode_name = "DEFENSE"
                 health_mult = max(0.50, round(1.0 + (daily_pnl_pct / 25.0), 3))
                 if is_high_conviction:
-                    health_mult = min(1.25, round(health_mult * 1.30, 3))
+                    # Pede by data: Juggler mengizinkan lot ekspansi terkalibrasi untuk mengejar target
+                    health_mult = round(min(2.0, health_mult * 1.35 * target_urgency), 3)
+                else:
+                    # Non-conviction: tahan lot di batas aman defensif
+                    health_mult = min(0.90, health_mult)
             elif daily_pnl_pct >= 3.0:
                 # GROWTH: expand lot dynamically using house money from broker gains
                 mode_name = "GROWTH"
                 health_mult = min(2.50, round(1.0 + ((daily_pnl_pct - 3.0) / 10.0), 3))
                 if is_high_conviction:
-                    health_mult = min(2.50, round(health_mult * 1.25, 3))
+                    health_mult = min(2.50, round(health_mult * target_urgency, 3))
             else:
                 # BALANCED: standard operating baseline
                 mode_name = "BALANCED"
-                health_mult = 1.20 if is_high_conviction else 1.00
+                health_mult = round(1.20 * target_urgency, 3) if is_high_conviction else 1.00
 
             dynamic_clamp_budget = round(base_clamp * health_mult, 2)
 

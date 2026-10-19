@@ -35,6 +35,39 @@ Aturan singkat:
 
 ---
 
+## 2026-10-20 — M5 Candle Pattern Reversal Protection & Target-Seeking High Conviction Sizing
+
+**Phase / Area:** The Juggler FinEng & Position Watchdog (`execution/position_manager.py`, `agents/divisions/risk/agents.py`, `tests/test_execution.py`)
+**Status:** Done
+
+**Yang dikerjakan**
+- **Mengintegrasikan Pola Candle M5 pada Evaluasi Watchdog 60s+ & Sizing Target-Seeking Juggler:**
+  1. **Eliminasi Pemotongan Sepihak M1 (M5 Reversal Protection):**
+     - Audit menemukan bahwa tiket `#4894936559` terpotong di detik 61 saat M5 sebenarnya masih berstatus `SUPPORTING`, akibat klausul lama `or (m1_opp_conf >= 0.70)`.
+     - Memperbarui `execution/position_manager.py`: `invalidation_alert` kini **wajib konfirmasi ganda** (`m1_verdict == "OPPOSING" and m5_verdict == "OPPOSING"`).
+     - Jika durasi trade menyentuh 60+ detik dan M1 berlawanan tetapi **Satpam M5 masih `SUPPORTING`**, bot dilarang memotong sepihak. Posisi wajib ditahan (*Hold for M5 Reversal*) untuk memberikan ruang terbentuknya pantulan pola candle M5 menuju Take Profit.
+     - Memperbarui proteksi durasi pada Phase 4 agar tidak memotong posisi yang struktur M5-nya masih sehat mendukung.
+  2. **Juggler Target-Seeking & High-Conviction Sizing:**
+     - Di `agents/divisions/risk/agents.py`: Sizing lot dikonfirmasi langsung ke Juggler dengan mempertimbangkan sisa target dolar (`remaining_usd`) via `target_urgency`.
+     - Jika data sangat meyakinkan (*Pede by data*: SPK score $\ge 5.0$, confidence $\ge 70\%$, atau multi-indikator konfluensi kuat), Juggler mengizinkan lot ekspansi terkalibrasi (hingga 0.14–0.18 lot) untuk mempercepat pencapaian target harian.
+     - Jika setup marjinal/biasa, lot ditahan di level aman defensif (0.07–0.08 lot).
+  3. **Unit Testing:**
+     - Memperbarui `tests/test_execution.py`: Verifikasi skenario 2b (saat detik 65, jika M1 oppose tapi M5 support -> posisi tetap HELD) dan 2c (setelah M5 juga oppose -> cutloss dieksekusi).
+
+**File tersentuh**
+- `execution/position_manager.py` — Dual M1+M5 invalidation alert dan proteksi hold saat M5 supporting.
+- `agents/divisions/risk/agents.py` — Penguatan target-seeking demand factor dan high-conviction sizing.
+- `tests/test_execution.py` — Penambahan verifikasi M5 supporting hold.
+- `docs/QUANT_FINENG_BIZDEV_SPEC.md` — Sinkronisasi spesifikasi M5 pattern hold dan target-seeking sizing.
+
+**Verifikasi**
+- `pytest tests/test_execution.py tests/test_risk_division.py tests/test_orchestrator.py tests/test_clock.py` → 67 passed in 0.39s.
+
+**Catatan / Next**
+- Deploy file ke production server (`studo@100.114.150.48`) dan restart container `gs-bot`.
+
+---
+
 ## 2026-10-19 — The Juggler Verdict: Defense Mode Capital Preservation, Grade A+ Conviction Boost & Anti-Hunting Reversal SL
 
 **Phase / Area:** The Juggler FinEng & Execution Architecture (`agents/divisions/risk/agents.py`, `agents/orchestrator.py`, `execution/risk_gate.py`, `tests/test_risk_division.py`)

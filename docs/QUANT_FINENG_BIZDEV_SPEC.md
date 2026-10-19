@@ -99,8 +99,9 @@ $$\text{Calculated Lot} = \text{Clamp}\left(\frac{\text{Remaining USD}}{\text{Ex
   - Untuk mencegah posisi terpotong prematur oleh sumbu/ekor candle M1 palsu (*intra-candle noise/wick*), Juggler memberikan *Grace Period* minimum 60 detik (`watchdog_min_hold_seconds: 60`).
   - Selama `held < 60s`, cut-loss dini dilarang aktif KECUALI terjadi lonjakan ekstrem (*catastrophic gap* $> 1.6\times$ clamp).
   - Sisi Take Profit (TP) **TETAP INSTAN / BEBAS** dieksekusi dalam hitungan detik (< 60s) saat target/momentum tercapai.
-* **Satpam M1/M5 Early Invalidation Cut (Cut Loss Dini Cerdas setelah Candle M1 Close):**
-  - Jika posisi dalam kondisi floating minus, telah berjalan $\ge 60$ detik (`held >= watchdog_min_hold_seconds`), dan Satpam M1 serta M5 mendeteksi konfirmasi reversal yang berlawanan (`invalidation_alert`), bot langsung melakukan cut loss dini pada batas terukur (~$6-$8 / 40% clamp), tanpa membiarkan floating minus drifting sampai menjemput SL fisik penuh di MT5 (-$23.72).
+* **Satpam M1/M5 Dual Invalidation Cut & M5 Pattern Reversal Hold (Durasi $\ge 60$ Detik):**
+  - **M5 Pattern Reversal Hold:** Jika durasi berjalan $\ge 60$ detik dan M1 berlawanan arah, namun Satpam M5 masih **`SUPPORTING`** (struktur swing M5 masih sehat), bot **DILARANG MEMOTONG SEPIHAK**. Posisi wajib ditahan (*Hold for M5 Reversal*) untuk memberikan ruang bagi pola candle M5 menyelesaikan pantulan menuju Take Profit.
+  - **Dual Invalidation Cut:** Posisi HANYA dipotong dini jika **Satpam M1 dan Satpam M5 KEDUANYA KOMPAK `OPPOSING`** (terjadi konfirmasi *Break of Structure* / CHoCH di M5), memotong rugi di ambang batas aman (~$6-$8 / 40% clamp) sebelum menjemput full SL MT5.
 * **Fast Break-Even Lock (BEP+ Zero-Risk Mode):**
   - Begitu posisi bergerak untung $\ge 12$ pips (atau profit $\ge \$1.80$), Stop Loss secara otomatis digeser ke `Entry + 0.10` (untuk BUY) atau `Entry - 0.10` (untuk SELL). Posisi yang sudah sempat hijau terkunci bebas risiko (*risk-free*) dan dilarang keras kembali menjadi merah.
 * **Dynamic Bleeding Clamp (Melirik Live Average Win):**

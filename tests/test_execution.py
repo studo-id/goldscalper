@@ -315,7 +315,19 @@ async def test_watchdog_time_extension_and_invalidation_cut() -> None:
     assert "watchdog_early_invalidation_cut" not in actions_wick
     assert len(await client.positions("XAUUSD")) == 1
 
-    # 2b. Once 1 full M1 candle closes (held >= 60s, e.g. 65s): Early Invalidation Cut triggers!
+    # 2b. At 65s (held >= 60s), if M1 opposes but M5 is SUPPORTING: DO NOT CUT — Hold for M5 Reversal!
+    m5_supp_signals = [
+        AgentSignal(agent_id="TF-M1-Sniper", division="timeframe", vote=-1, confidence=0.8),
+        AgentSignal(agent_id="TF-M5-Inspector", division="timeframe", vote=1, confidence=0.7),
+    ]
+    dec_m5_supp = SPKDecision(action=ACTION_BUY, score=0.0, confidence=0.7, votes=m5_supp_signals)
+    pm._states[pos.ticket].opened_at = now - timedelta(seconds=65)
+    pos.profit = -7.00
+    actions_hold = await pm.manage(pos, price=2349.5, now=now, context={"decision": dec_m5_supp})
+    assert "watchdog_early_invalidation_cut" not in actions_hold
+    assert len(await client.positions("XAUUSD")) == 1
+
+    # 2c. Only once M5 also confirms OPPOSING (both M1 & M5 oppose): Early Invalidation Cut triggers!
     pm._states[pos.ticket].opened_at = now - timedelta(seconds=65)
     pos.profit = -7.00
     actions_cut = await pm.manage(pos, price=2349.5, now=now, context={"decision": dec_adv})
