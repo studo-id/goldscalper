@@ -137,92 +137,9 @@ class Orchestrator:
                 confidence += pnl_drag
             decision.confidence = round(max(0.0, min(1.0, confidence)), 4)
 
-            # Reversal Hunter Confluence:
-            # If the trade was blocked by an active S/R or Liquidity Sweep Hard Barrier:
-            # check if fast M1 price action confirms a reversal in the opposite direction!
-            if decision.hard_veto and state and state.extra.get("active_sr_barrier"):
-                barrier = state.extra["active_sr_barrier"]  # "RESISTANCE" or "SUPPORT"
-                reversal_action = ACTION_SELL if barrier == "RESISTANCE" else ACTION_BUY
-                req_vote = -1 if reversal_action == ACTION_SELL else 1
-
-                m1_sniper = next((s for s in signals if s.agent_id == "TF-M1-Sniper"), None)
-                tech_pattern = next((s for s in signals if s.agent_id == "Tech-Pattern"), None)
-                micro = next((s for s in signals if s.agent_id == "Struct-Microstructure"), None)
-
-                m1_confirmed = (
-                    (m1_sniper is not None and m1_sniper.vote == req_vote)
-                    or (tech_pattern is not None and tech_pattern.vote == req_vote and (tech_pattern.confidence or 0.0) >= 0.65)
-                    or (micro is not None and micro.vote == req_vote)
-                )
-
-                if m1_confirmed:
-                    rev_veto = evaluate_vetoes(signals, state, reversal_action, self.veto_params)
-                    if not rev_veto.hard:
-                        cur_price = state.last_price() or state.bid or state.ask or 0.0
-                        daily_pnl_pct = float(getattr(state, "daily_pnl_pct", 0.0) or 0.0)
-
-                        # Dynamic confidence derived from confirming scouts + portfolio health
-                        confirming_conf = max(
-                            getattr(m1_sniper, "confidence", 0.0) or 0.0,
-                            getattr(tech_pattern, "confidence", 0.0) or 0.0,
-                            getattr(micro, "confidence", 0.0) or 0.0,
-                            0.65,
-                        )
-                        if daily_pnl_pct < 0:
-                            confirming_conf += max(-0.15, round(daily_pnl_pct / 50.0, 4))
-                        final_conf = round(max(0.40, min(0.90, confirming_conf)), 4)
-
-                        if cur_price > 0:
-                            # Dynamic SL & TP aligned with Portfolio & Daily Sprint Target
-                            spread_usd = (float(state.spread_points or 0.0) * 0.10) if state.spread_points else 0.80
-                            live_avg_win = float(state.extra.get("live_avg_win", 0.0) or 0.0)
-                            rem_target = state.extra.get("remaining_target_usd")
-
-                            # Dynamic SL: spread-aware noise cushion (min $3.50 / 35 pips to prevent broker wick hunting)
-                            sl_dist = max(3.50, round(spread_usd * 3.5, 2))
-
-                            # Dynamic TP: anchored to live avg win and sprint target proximity
-                            base_tp_dist = max(5.00, round(live_avg_win * 1.25, 2))
-                            if rem_target is not None and 0 < rem_target <= 20.0:
-                                # Finish line proximity: calibrate TP to achieve remaining sprint target!
-                                tp_dist = min(base_tp_dist, max(2.50, round(rem_target, 2)))
-                            elif daily_pnl_pct >= 3.0:
-                                # Growth Mode: expand runner to compound gains
-                                tp_dist = max(base_tp_dist, round(sl_dist * 2.5, 2))
-                            elif daily_pnl_pct < 0:
-                                # Defense Mode: runner expansion if high-conviction, otherwise crisp banking
-                                if final_conf >= 0.70:
-                                    tp_dist = max(7.50, round(sl_dist * 1.8, 2))
-                                else:
-                                    tp_dist = max(3.50, round(sl_dist * 1.5, 2))
-                            else:
-                                tp_dist = base_tp_dist
-
-                            if reversal_action == ACTION_SELL:
-                                sl = round(cur_price + sl_dist, 2)
-                                tp = round(cur_price - tp_dist, 2)
-                            else:
-                                sl = round(cur_price - sl_dist, 2)
-                                tp = round(cur_price + tp_dist, 2)
-                        else:
-                            sl = None
-                            tp = None
-
-                        log.info(
-                            "REVERSAL CONFLUENCE TRIGGERED: %s blocked by %s barrier, M1 confirmed -> Switching to %s (SL=%s, TP=%s)",
-                            action,
-                            barrier,
-                            reversal_action,
-                            f"{sl:.2f}" if sl is not None else "auto",
-                            f"{tp:.2f}" if tp is not None else "auto",
-                        )
-                        decision.action = reversal_action
-                        decision.hard_veto = False
-                        decision.veto_reason = None
-                        decision.confidence = final_conf
-                        decision.sl = sl
-                        decision.tp = tp
-                        decision.soft_notes.append(f"reversal_confluence_from_{barrier.lower()}")
+            # Note: If trade is blocked by hard veto (such as S/R barrier), we respect the veto
+            # and maintain HOLD discipline. We strictly DO NOT auto-flip the trade direction against
+            # multi-agent SPK consensus to prevent catching falling knives or rocket spikes.
 
             if self.risk_gate is not None and not decision.hard_veto:
                 try:

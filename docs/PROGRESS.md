@@ -35,7 +35,33 @@ Aturan singkat:
 
 ---
 
-## 2026-10-20 — SPK Veto Arbitration: Demotion of HTF Macro Directional Vetoes to Soft Penalty
+## 2026-10-20 — Removal of Reversal Confluence Auto-Flip (Eliminating Falling-Knife Trap at S/R)
+
+**Phase / Area:** Agent Orchestrator & Execution Discipline (`agents/orchestrator.py`)
+**Status:** Done
+
+**Yang dikerjakan**
+- **Mengeliminasi Jebakan Pisau Jatuh (Auto-Flip Removal):**
+  1. **Investigasi Insiden Live (Tiket #4897769222 & #4897770937):**
+     - Ditemukan anomali fatal pada runtime di mana konsensus 30+ agen SPK sebenarnya membaca pasar **BEARISH / SELL**.
+     - Namun karena harga menyentuh lantai support M1, agen `Tech-SupportResistance` menerbitkan `VETO_SELL`.
+     - Modul `Reversal Hunter Confluence` di `orchestrator.py` secara gegabah membalikkan arah order dari SELL menjadi **BUY** hanya karena 1 agen mikro (`Struct-Microstructure`) mendeteksi osilasi volume beli tick 1 menit.
+     - Akibatnya, bot membuka BUY melawan arus tren besar (downtrend deras), menyebabkan 2 kali cutloss berurutan (-$9.85 di detik ke-35 via Emergency Dynamic Clamp dan -$5.09 di detik ke-61 via Satpam Watchdog).
+  2. **Penegasan Disiplin Trading (HOLD Mode):**
+     - Menghapus total blok auto-flip di `agents/orchestrator.py`.
+     - *Dilarang menjual di support BUKAN berarti wajib membeli di support*. Jika SELL terhalang support, sistem wajib berstatus **HOLD (Standby)** demi melindungi modal.
+     - Bot dilarang keras membuka BUY sampai seluruh konsensus multi-agent SPK secara alami dan organik berbalik arah menjadi BUY dari pantulan nyata (*rejection confirmed*).
+     - Jika support tertembus (*confirmed breakdown* di bawah buffer $1.20), agen `Tech-SupportResistance` secara alami akan menerbitkan sinyal `CONFIRMED_MICRO_BREAKDOWN` (vote SELL 0.80) sehingga bot dapat berselancar mengikuti tren.
+
+**File tersentuh**
+- `agents/orchestrator.py` — Menghapus blok `Reversal Hunter Confluence` auto-flip; menjaga integritas `hard_veto` dan konsensus SPK.
+- `docs/PROGRESS.md` — Pencatatan worklog audit dan eliminasi bug entry.
+
+**Verifikasi**
+- `pytest tests/test_spk_veto.py tests/test_technical_division.py tests/test_runtime.py` → 54 passed in 0.46s.
+- Kode disinkronkan ke server live dan container `gs-bot` direstart.
+
+---
 
 **Phase / Area:** SPK Veto Arbitration Engine (`spk/veto.py`, `tests/test_spk_veto.py`)
 **Status:** Done
