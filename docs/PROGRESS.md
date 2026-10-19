@@ -35,6 +35,44 @@ Aturan singkat:
 
 ---
 
+## 2026-10-20 — M1 Micro-SR Detection with Configurable Confirmation Range & Bi-Directional Anti-Chasing Veto
+
+**Phase / Area:** Technical Division & SPK Veto Engine (`agents/divisions/technical/agents.py`, `config/settings.py`, `tests/test_technical_division.py`)
+**Status:** Done
+
+**Yang dikerjakan**
+- **Mengeliminasi Blindspot Support/Resistance Lokal M1 (Anti-Chasing at The Dip / Peak):**
+  1. **Audit Masalah Tiket `#4897660772` (SELL di Dasar Lembah $4,143.39):**
+     - Sinyal SELL dipicu karena candle M1 drop deras dari $4,149 dan divisi Timeframe membaca momentum bearish ekstrem (-4.44).
+     - Agen `Tech-SupportResistance` lama hanya memindai M5 (lookback 100 menit) sehingga support dianggap masih jauh di $4,136.71 dan harga $4,143.39 dicap sebagai "mid-channel, scalping permitted" tanpa veto.
+     - Akibatnya bot mengejar momentum turun (*chasing the dip*) dan menjual tepat di support lokal M1.
+  2. **Implementasi Deteksi M1 Micro-SR & Variabel Range Konfirmasi:**
+     - Menambahkan parameter konfigurasi:
+       - `micro_sr_veto_enabled: bool = True`
+       - `micro_sr_lookback_m1: int = 20` (jendela swing lokal 20 menit)
+       - `micro_sr_confirm_range_usd: float = 1.20` (variabel range konfirmasi / buffer: $1.20 = 12 pips di Gold)
+     - **Micro-Support Protection (SELL HARAM):**
+       - Jika harga berada dalam zona `m1_support +/- confirm_range_usd`, agen `Tech-SupportResistance` mengaktifkan **Hard Veto `VETO_SELL`** (Confidence 0.80).
+       - SELL hanya diizinkan jika harga terkonfirmasi resmi jebol (*close breakdown*) di bawah `m1_support - confirm_range_usd`.
+     - **Micro-Resistance Protection (BUY HARAM - Kebalikannya):**
+       - Jika harga berada dalam zona `m1_resistance +/- confirm_range_usd`, agen mengaktifkan **Hard Veto `VETO_BUY`** (Confidence 0.80).
+       - BUY hanya diizinkan jika harga terkonfirmasi resmi tembus (*close breakout*) di atas `m1_resistance + confirm_range_usd`.
+  3. **Unit Testing:**
+     - Menambahkan `test_support_resistance_m1_micro_support_veto_sell` dan `test_support_resistance_m1_micro_resistance_veto_buy`.
+     - 113 core tests lolos 100%.
+
+**File tersentuh**
+- `config/settings.py` — Penambahan variabel `micro_sr_veto_enabled`, `micro_sr_lookback_m1`, `micro_sr_confirm_range_usd`.
+- `.env.example` — Template variabel env Micro-SR.
+- `agents/divisions/technical/agents.py` — Logika M1 Micro-SR detection & bi-directional anti-chasing veto.
+- `tests/test_technical_division.py` — Pengujian unit Micro-SR veto & Python 3.10 UTC compat.
+- `tests/test_spk_veto.py` — Python 3.10 UTC compat.
+
+**Verifikasi**
+- `pytest tests/test_execution.py tests/test_risk_division.py tests/test_spk_veto.py tests/test_orchestrator.py tests/test_clock.py tests/test_technical_division.py` → 113 passed in 0.49s.
+
+---
+
 ## 2026-10-20 — M5 Candle Pattern Reversal Protection & Target-Seeking High Conviction Sizing
 
 **Phase / Area:** The Juggler FinEng & Position Watchdog (`execution/position_manager.py`, `agents/divisions/risk/agents.py`, `tests/test_execution.py`)

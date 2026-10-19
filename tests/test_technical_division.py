@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+try:
+    from datetime import UTC
+except ImportError:
+    UTC = timezone.utc
 
 from agents.divisions.technical import (
     Momentum,
@@ -13,7 +18,7 @@ from agents.divisions.technical import (
     Volume,
     build_technical_agents,
 )
-from agents.state import VOTE_BUY, VOTE_NEUTRAL, VOTE_SELL, SharedState
+from agents.state import VETO_BUY, VETO_SELL, VOTE_BUY, VOTE_NEUTRAL, VOTE_SELL, SharedState
 from core.market_data import Candle, tf_seconds
 
 BASE = datetime(2026, 1, 5, 0, 0, tzinfo=UTC)
@@ -135,6 +140,36 @@ async def test_support_resistance_mid_range() -> None:
     rows = [(2355, 2360, 2350, 2355) for _ in range(20)]
     sig = await SupportResistance().evaluate(state(frames={"M15": _frame("M15", rows)}))
     assert sig.vote == VOTE_NEUTRAL
+
+
+async def test_support_resistance_m1_micro_support_veto_sell() -> None:
+    # M5 frames in mid range (2350 to 2360, close at 2353.0)
+    m5_rows = [(2355, 2360, 2350, 2355) for _ in range(19)] + [(2354, 2355, 2352.5, 2353.0)]
+    # M1 frames have local swing low (support) at 2352.8. Current price 2353.0 is within $1.20 buffer!
+    m1_rows = [(2355, 2356, 2352.8, 2355) for _ in range(19)] + [(2354, 2355, 2352.8, 2353.0)]
+    
+    st = state(frames={"M5": _frame("M5", m5_rows), "M1": _frame("M1", m1_rows)})
+    sig = await SupportResistance().evaluate(st)
+    
+    # Must activate hard VETO_SELL to prevent chasing the dip into M1 support!
+    assert sig.veto == VETO_SELL
+    assert "veto SELL" in sig.reasoning
+    assert sig.metadata.get("micro_sr_event") == "AT_MICRO_SUPPORT"
+
+
+async def test_support_resistance_m1_micro_resistance_veto_buy() -> None:
+    # M5 frames in mid range (2350 to 2360, close at 2357.5)
+    m5_rows = [(2355, 2360, 2350, 2355) for _ in range(19)] + [(2356, 2358, 2355, 2357.5)]
+    # M1 frames have local swing high (resistance) at 2358.0. Current price 2357.5 is within $1.20 buffer!
+    m1_rows = [(2355, 2358.0, 2354, 2355) for _ in range(19)] + [(2356, 2358.0, 2356, 2357.5)]
+    
+    st = state(frames={"M5": _frame("M5", m5_rows), "M1": _frame("M1", m1_rows)})
+    sig = await SupportResistance().evaluate(st)
+    
+    # Must activate hard VETO_BUY to prevent buying at M1 local peak!
+    assert sig.veto == VETO_BUY
+    assert "veto BUY" in sig.reasoning
+    assert sig.metadata.get("micro_sr_event") == "AT_MICRO_RESISTANCE"
 
 
 async def test_pattern_bullish_engulfing() -> None:

@@ -1,4 +1,9 @@
-from datetime import UTC, datetime
+from datetime import datetime, timezone
+
+try:
+    from datetime import UTC
+except ImportError:
+    UTC = timezone.utc
 
 from agents.base import AgentSignal
 from agents.state import VETO_BUY, VETO_SELL, SharedState

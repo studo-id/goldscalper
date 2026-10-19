@@ -15,6 +15,7 @@ from typing import Any
 from agents.base import AgentSignal
 from agents.divisions.technical.base import TechnicalAgent
 from agents.state import VETO_BUY, VETO_SELL, VOTE_BUY, VOTE_NEUTRAL, VOTE_SELL, SharedState
+from config.settings import Settings, settings as default_settings
 from core.indicators import atr, bollinger, ema_last, ema_series, macd, mean, rsi_last, wick_stats
 
 
@@ -136,6 +137,13 @@ class SupportResistance(TechnicalAgent):
     lookback = 20
     proximity = 0.0010
 
+    def __init__(self, settings: Settings | None = None) -> None:
+        super().__init__()
+        self.s = settings or default_settings
+        self.micro_enabled: bool = getattr(self.s, "micro_sr_veto_enabled", True)
+        self.micro_lookback: int = getattr(self.s, "micro_sr_lookback_m1", 20)
+        self.confirm_range_usd: float = getattr(self.s, "micro_sr_confirm_range_usd", 1.20)
+
     async def evaluate(self, state: SharedState) -> AgentSignal:
         b = self.bars(state)
         if b.n < self.min_bars:
@@ -165,7 +173,7 @@ class SupportResistance(TechnicalAgent):
         sideways = (range_span <= 10.00) or (range_pct <= 0.008)
         midline = (support + resistance) / 2.0
 
-        meta = {
+        meta: dict[str, Any] = {
             "support": round(support, 2),
             "resistance": round(resistance, 2),
             "raw_support": round(sorted_lows[0], 2),
@@ -176,6 +184,71 @@ class SupportResistance(TechnicalAgent):
             "range_span": round(range_span, 2),
             "sideways_range": sideways,
         }
+
+        # --- M1 Local Micro-SR & Anti-Chasing Veto Protection ---
+        # Detects local swing lows and swing highs on M1 within the recent lookback window
+        # to prevent chasing into local support (bottom SELL) or local resistance (peak BUY).
+        if self.micro_enabled:
+            b_m1 = self.bars(state, "M1")
+            if b_m1.n >= 10:
+                m1_win = slice(-min(b_m1.n, self.micro_lookback), None)
+                m1_support = min(b_m1.lows[m1_win])
+                m1_resistance = max(b_m1.highs[m1_win])
+                buf = float(self.confirm_range_usd)
+
+                meta["m1_support"] = round(m1_support, 2)
+                meta["m1_resistance"] = round(m1_resistance, 2)
+                meta["confirm_range_usd"] = round(buf, 2)
+
+                if hasattr(state, "extra") and isinstance(state.extra, dict):
+                    state.extra["m1_support"] = m1_support
+                    state.extra["m1_resistance"] = m1_resistance
+                    state.extra["m1_confirm_range_usd"] = buf
+
+                # 1. Micro-Support Zone Protection:
+                # If price is at or near M1 local support floor within confirmation buffer:
+                # Strictly VETO SELL to prevent selling at the bottom of the dip!
+                if (m1_support - buf) <= close <= (m1_support + buf):
+                    meta["micro_sr_event"] = "AT_MICRO_SUPPORT"
+                    return self.signal(
+                        VOTE_BUY,
+                        0.80,
+                        f"price in M1 micro-support zone (${m1_support:.2f} +/- ${buf:.2f}), veto SELL",
+                        meta,
+                        veto=VETO_SELL,
+                    )
+
+                # 2. Micro-Resistance Zone Protection:
+                # If price is at or near M1 local resistance ceiling within confirmation buffer:
+                # Strictly VETO BUY to prevent buying at the peak!
+                if (m1_resistance - buf) <= close <= (m1_resistance + buf):
+                    meta["micro_sr_event"] = "AT_MICRO_RESISTANCE"
+                    return self.signal(
+                        VOTE_SELL,
+                        0.80,
+                        f"price in M1 micro-resistance zone (${m1_resistance:.2f} +/- ${buf:.2f}), veto BUY",
+                        meta,
+                        veto=VETO_BUY,
+                    )
+
+                # 3. Confirmed M1 Breakout / Breakdown (Outside confirmation range):
+                if close < (m1_support - buf):
+                    meta["micro_sr_event"] = "CONFIRMED_MICRO_BREAKDOWN"
+                    return self.signal(
+                        VOTE_SELL,
+                        0.80,
+                        f"confirmed M1 breakdown below micro-support (${m1_support:.2f} - ${buf:.2f})",
+                        meta,
+                    )
+                if close > (m1_resistance + buf):
+                    meta["micro_sr_event"] = "CONFIRMED_MICRO_BREAKOUT"
+                    return self.signal(
+                        VOTE_BUY,
+                        0.80,
+                        f"confirmed M1 breakout above micro-resistance (${m1_resistance:.2f} + ${buf:.2f})",
+                        meta,
+                    )
+
         if sideways:
             state.extra["sideways_range"] = True
             state.extra["sr_support"] = support

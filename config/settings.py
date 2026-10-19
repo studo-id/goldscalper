@@ -99,6 +99,11 @@ class Settings(BaseSettings):
     overnight_flat_utc_enabled: bool = True   # Flag open intraday trades for flat exit before 21:00 UTC
     d1_macro_bias_veto_enabled: bool = True   # Veto opposing trades when D1 Macro has clear confirmed trend
 
+    # --- Micro-SR & Anti-Chasing Veto (M1 Confirmation Range) ---
+    micro_sr_veto_enabled: bool = True
+    micro_sr_lookback_m1: int = 20           # 20 bars M1 = 20 minutes local swing window
+    micro_sr_confirm_range_usd: float = 1.20 # Variable confirmation range buffer ($1.20 = 12 pips buffer)
+
     # --- Execution / instrument ---
     contract_size: float = 100.0  # XAUUSD: 1.0 lot = 100 troy oz
     commission_per_lot: float = 7.0
