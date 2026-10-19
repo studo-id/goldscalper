@@ -35,6 +35,48 @@ Aturan singkat:
 
 ---
 
+## 2026-10-19 — Multi-Timeframe Watchdog (Satpam Bertingkat M1, M5, M15) & Fast Break-Even Lock (BEP+)
+
+**Phase / Area:** Execution Layer, Risk & Exit Architecture (`execution/position_manager.py`, `config/settings.py`, `tests/test_execution.py`, `.env.example`)
+**Status:** Done
+
+**Yang dikerjakan**
+- **Mengatasi Asimetri Risiko Exit (Negative Risk-Reward Asymmetry) & Mengganti Dumb Timer 900s:**
+  1. **Akar Masalah (Root Cause):**
+     - Bot memiliki win rate tinggi dengan TP cepat (+1.60 s/d +8.00 USD), namun pada trade tiket `#4893108219`, bot mengalami loss -$23.72 karena menunggu SL fisik di MT5 secara pasif.
+     - Ambang batas Break-Even lama (`be_trigger_usd`) membutuhkan $7.00 profit (+50 pips pada lot 0.14) baru BE aktif, sehingga trade yang sudah sempat running untung +10-15 pips tidak terkunci dan berbalik rugi besar.
+     - Hard time-stop kaku 900 detik memenggal posisi secara buta tanpa memperhatikan apakah Higher Timeframe (M5, M15) sedang membentuk struktur konfirmasi reversal menuju TP.
+  2. **Multi-Timeframe Watchdog (Satpam Bertingkat):**
+     - Mengembangkan `evaluate_multi_tf_watchdogs(pos_direction, context)` dengan 3 layer pengawasan terkalibrasi:
+       - **Satpam Layer 1 (M1 Sniper / Micro):** `TF-M1-Sniper`, `Tech-EMA-Cross`, `Tech-RSI-Stoch` (memantau micro-rejection & adverse momentum).
+       - **Satpam Layer 2 (M5 Structure):** `TF-M5-Inspector`, `Struct-MarketStructure` (memantau swing structure CHoCH/BOS).
+       - **Satpam Layer 3 (HTF Trend & Liquidity):** `TF-M15-Liquidity`, `TF-M30-Momentum`, `TF-H1-Regime`, `TF-H4-Structure`.
+  3. **Smart Time Extension (Pengganti Timer Kaku 900s):**
+     - Jika durasi trade mencapai `max_hold_seconds`, sistem mengecek Satpam M5 & HTF.
+     - Jika struktur HTF masih sehat mendukung (`SUPPORTING`) dan M5 tidak patah struktur, Juggler memberikan izin perpanjangan nafas (*Dynamic Time Extension* hingga +300 detik) untuk memberi ruang terbentuknya reversal menuju TP.
+     - Jika Satpam melapor `NEUTRAL` atau `OPPOSING`, posisi langsung ditutup secara terukur (`time_stop`).
+  4. **Satpam M1/M5 Early Invalidation Cut:**
+     - Jika posisi floating minus dan Satpam M1 serta M5 mendeteksi konfirmasi reversal yang berlawanan (`invalidation_alert`), bot langsung melakukan *cut loss dini* pada ambang batas terukur (~$6-$8), mencegah kerugian membengkak hingga -$23.72.
+  5. **Fast Break-Even Lock (BEP+):**
+     - Merapatkan ambang batas Break-Even menjadi 12 pips (`fast_breakeven_pips = 12.0`, min `$1.80`).
+     - Begitu running profit mencapai +12 pips, Stop Loss otomatis digeser ke `entry + 0.10` / `entry - 0.10` (Zero Risk Mode). Posisi yang sudah sempat hijau terlindungi 100% dari berbalik merah.
+  6. **Integritas Sinyal Entry 100% Utuh:**
+     - Seluruh mesin pembuat sinyal entry, bobot voting SPK, dan filter confluence tetap dipertahankan utuh tanpa perubahan.
+
+**File tersentuh**
+- `config/settings.py` — Menambahkan parameter `watchdog_enabled`, `watchdog_time_extension_seconds`, `watchdog_early_invalidation_enabled`, `watchdog_early_loss_ratio`, `fast_breakeven_pips`.
+- `execution/position_manager.py` — Implementasi `evaluate_multi_tf_watchdogs`, smart watchdog time stop, Satpam M1/M5 early cutloss, dan fast BEP+ lock.
+- `.env.example` — Sinkronisasi variabel lingkungan untuk Watchdog dan Fast BEP+.
+- `tests/test_execution.py` — Penambahan 2 unit test baru: `test_watchdog_time_extension_and_invalidation_cut` dan `test_fast_breakeven_lock`.
+
+**Verifikasi**
+- `pytest tests/test_execution.py tests/test_clock.py` → 28 passed in 0.19s (100% pass).
+
+**Catatan / Next**
+- Deploy kode ke server Docker dan monitor performa real-time pengawalan posisi oleh Satpam Bertingkat.
+
+---
+
 ## 2026-10-19 — Overnight Rollover & Asia Session Boundary Guard: Eliminating Rapid-Close Churn
 
 **Phase / Area:** Execution Layer, Market Clock & Risk Gate (`core/clock.py`, `execution/position_manager.py`, `execution/risk_gate.py`, `tests/test_clock.py`, `tests/test_execution.py`)

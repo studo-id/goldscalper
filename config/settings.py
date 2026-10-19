@@ -131,6 +131,13 @@ class Settings(BaseSettings):
     lot_sizing_mode: str = "TARGET_SEEKING"  # "FIXED" | "ATR_RISK" | "TARGET_SEEKING"
     target_seeking_swing_usd: float = 3.00   # Estimated swing USD per trade for target-seeking sizing
 
+    # --- Multi-Timeframe Watchdog (Satpam Bertingkat M1, M5, M15) ---
+    watchdog_enabled: bool = True
+    watchdog_time_extension_seconds: int = 300  # Up to +5 mins extension if M5/HTF supporting
+    watchdog_early_invalidation_enabled: bool = True
+    watchdog_early_loss_ratio: float = 0.40     # Cut loss early at 40% of clamp if M1+M5 adverse
+    fast_breakeven_pips: float = 12.0           # Scalper BE lock distance (pips on XAUUSD)
+
     # --- BizDev: Rebate & Friction Engine ---
     bizdev_enabled: bool = True
     rebate_per_lot_usd: float = 6.00         # Estimated IB rebate per lot on XAUUSD

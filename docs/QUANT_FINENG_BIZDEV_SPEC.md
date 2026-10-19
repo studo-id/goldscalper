@@ -85,6 +85,19 @@ $$\text{Calculated Lot} = \text{Clamp}\left(\frac{\text{Remaining USD}}{\text{Ex
 * Jika terkena hari buruk, bot berhenti total hari itu. Modal sisa 80%–85% masih sangat sehat untuk dilipatgandakan kembali esok hari tanpa terkena risiko *margin call*.
 
 #### 4. In-Flight Position Mitigation & Dynamic SL/TP Matrix
+* **Multi-Timeframe Watchdog (Satpam Bertingkat M1, M5, M15):**
+  - Menggantikan batas waktu kaku (dumb timer 900 detik) dengan pengawasan 3-lapisan kecerdasan:
+    - **Satpam Layer 1 (M1 Micro / Sniper):** `TF-M1-Sniper`, `Tech-EMA-Cross`, `Tech-RSI-Stoch` (memantau micro-rejection & adverse momentum).
+    - **Satpam Layer 2 (M5 Swing Structure):** `TF-M5-Inspector`, `Struct-MarketStructure` (memantau swing structure CHoCH/BOS).
+    - **Satpam Layer 3 (HTF Trend & Liquidity):** `TF-M15-Liquidity`, `TF-M30-Momentum`, `TF-H1-Regime`, `TF-H4-Structure`.
+* **Smart Dynamic Time Extension (Pengganti 900s Dumb Timer):**
+  - Saat durasi trade mencapai `max_hold_seconds`, sistem tidak langsung memotong buta.
+  - Jika Satpam M5 dan HTF melapor bahwa struktur pasar masih sehat mendukung posisi (`SUPPORTING`), Juggler memberikan izin perpanjangan waktu (*Dynamic Time Extension* hingga +300 detik) untuk memberi ruang terbentuknya reversal menuju Take-Profit.
+  - Jika Satpam melapor `NEUTRAL` atau `OPPOSING`, posisi langsung ditutup secara disiplin (`time_stop`).
+* **Satpam M1/M5 Early Invalidation Cut (Cut Loss Dini Cerdas):**
+  - Jika posisi dalam kondisi floating minus dan Satpam M1 serta M5 mendeteksi konfirmasi reversal yang berlawanan (`invalidation_alert`), bot langsung melakukan cut loss dini pada batas terukur (~$6-$8 / 40% clamp), tanpa membiarkan floating minus drifting sampai menjemput SL fisik penuh di MT5 (-$23.72).
+* **Fast Break-Even Lock (BEP+ Zero-Risk Mode):**
+  - Begitu posisi bergerak untung $\ge 12$ pips (atau profit $\ge \$1.80$), Stop Loss secara otomatis digeser ke `Entry + 0.10` (untuk BUY) atau `Entry - 0.10` (untuk SELL). Posisi yang sudah sempat hijau terkunci bebas risiko (*risk-free*) dan dilarang keras kembali menjadi merah.
 * **Dynamic Bleeding Clamp (Melirik Live Average Win):**
   - Alih-alih batas loss statis kaku, Juggler mengunci batas rugi maksimal per tiket secara adaptif:
     $$\text{Max Loss Limit} = 1.1 \times \text{Live Average Win Harian}$$

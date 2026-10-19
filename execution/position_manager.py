@@ -35,72 +35,126 @@ class PositionState:
     opened_at: datetime | None = None
 
 
-def evaluate_htf_reversal_bias(pos_direction: str, context: dict[str, Any] | None) -> dict[str, Any]:
+def evaluate_multi_tf_watchdogs(pos_direction: str, context: dict[str, Any] | None) -> dict[str, Any]:
     """
-    Evaluate Higher Timeframe (HTF) agents with rich historical candle data:
-      - TF-H4-Structure: H4 trend and market structure
-      - TF-H1-Regime: H1 21-EMA slope and box regime
-      - TF-M30-Momentum: M30 momentum & exhaustion wicks
-      - TF-M15-Liquidity: M15 liquidity sweeps & order blocks
-      - Struct-MarketStructure: M5 Break of Structure (BOS) / Change of Character (CHoCH)
+    Multi-Timeframe Watchdog (Satpam Bertingkat):
+      - Satpam Layer 1 (M1 Micro / Sniper): TF-M1-Sniper, Tech-EMA-Cross, Tech-RSI-Stoch
+      - Satpam Layer 2 (M5 Swing Structure): TF-M5-Inspector, Struct-MarketStructure
+      - Satpam Layer 3 (HTF Trend & Liquidity): TF-M15-Liquidity, TF-M30-Momentum, TF-H1-Regime, TF-H4-Structure
 
-    Returns alignment score and verdict:
-      - HTF_SUPPORTING: Higher timeframe trend is with our trade (permission to hold for reversal).
-      - HTF_OPPOSING: Higher timeframe structure has broken against trade (early cutloss, do not hope).
-      - NEUTRAL: Conflicted / sideways.
+    Returns alignment metrics, verdicts, time-extension permissions, and invalidation alerts:
+      {
+        "m1": {"score": float, "verdict": "SUPPORTING"|"OPPOSING"|"NEUTRAL", "opposing_conf": float},
+        "m5": {"score": float, "verdict": "SUPPORTING"|"OPPOSING"|"NEUTRAL", "opposing_conf": float},
+        "htf": {"score": float, "verdict": "SUPPORTING"|"OPPOSING"|"NEUTRAL", "supporting": list, "opposing": list},
+        "can_extend_time": bool,
+        "invalidation_alert": bool,
+      }
     """
+    default_res: dict[str, Any] = {
+        "m1": {"score": 0.0, "verdict": "NEUTRAL", "opposing_conf": 0.0},
+        "m5": {"score": 0.0, "verdict": "NEUTRAL", "opposing_conf": 0.0},
+        "htf": {"score": 0.0, "verdict": "NEUTRAL", "supporting": [], "opposing": []},
+        "can_extend_time": False,
+        "invalidation_alert": False,
+    }
     if not context:
-        return {"score": 0.0, "verdict": "NEUTRAL", "supporting": [], "opposing": []}
+        return default_res
 
     decision = context.get("decision")
     if not decision or not getattr(decision, "votes", None):
-        return {"score": 0.0, "verdict": "NEUTRAL", "supporting": [], "opposing": []}
+        return default_res
 
+    dir_upper = pos_direction.upper()
+    pos_vote = 1 if dir_upper == "BUY" else -1
+
+    m1_weights = {"TF-M1-Sniper": 2.0, "Tech-EMA-Cross": 1.0, "Tech-RSI-Stoch": 1.0}
+    m5_weights = {"TF-M5-Inspector": 2.5, "Struct-MarketStructure": 2.0}
     htf_weights = {
         "TF-H4-Structure": 2.5,
         "TF-H1-Regime": 2.5,
         "TF-M30-Momentum": 1.5,
         "TF-M15-Liquidity": 1.5,
-        "Struct-MarketStructure": 1.0,
     }
 
-    dir_upper = pos_direction.upper()
-    pos_vote = 1 if dir_upper == "BUY" else -1
+    m1_align = 0.0
+    m1_weight = 0.0
+    m1_opp_conf = 0.0
 
-    weighted_alignment = 0.0
-    total_weight = 0.0
-    supporting = []
-    opposing = []
+    m5_align = 0.0
+    m5_weight = 0.0
+    m5_opp_conf = 0.0
+
+    htf_align = 0.0
+    htf_weight = 0.0
+    htf_supp: list[str] = []
+    htf_opp: list[str] = []
 
     for signal in decision.votes:
         agent_id = getattr(signal, "agent_id", "")
+        vote = getattr(signal, "vote", 0)
+        conf = float(getattr(signal, "confidence", 0.5) or 0.5)
+        is_align = (vote > 0 and pos_vote > 0) or (vote < 0 and pos_vote < 0)
+        is_oppose = (vote > 0 and pos_vote < 0) or (vote < 0 and pos_vote > 0)
+
+        if agent_id in m1_weights:
+            w = m1_weights[agent_id]
+            m1_weight += w
+            if is_align:
+                m1_align += w * conf
+            elif is_oppose:
+                m1_align -= w * conf
+                m1_opp_conf = max(m1_opp_conf, conf)
+
+        if agent_id in m5_weights:
+            w = m5_weights[agent_id]
+            m5_weight += w
+            if is_align:
+                m5_align += w * conf
+            elif is_oppose:
+                m5_align -= w * conf
+                m5_opp_conf = max(m5_opp_conf, conf)
+
         if agent_id in htf_weights:
             w = htf_weights[agent_id]
-            vote = getattr(signal, "vote", 0)
-            conf = float(getattr(signal, "confidence", 0.5) or 0.5)
-            total_weight += w
+            htf_weight += w
+            if is_align:
+                htf_align += w * conf
+                htf_supp.append(f"{agent_id}(conf={conf:.2f})")
+            elif is_oppose:
+                htf_align -= w * conf
+                htf_opp.append(f"{agent_id}(conf={conf:.2f})")
 
-            # Does this HTF scout agree with our open position?
-            if (vote > 0 and pos_vote > 0) or (vote < 0 and pos_vote < 0):
-                weighted_alignment += w * conf
-                supporting.append(f"{agent_id}(conf={conf:.2f})")
-            elif (vote > 0 and pos_vote < 0) or (vote < 0 and pos_vote > 0):
-                weighted_alignment -= w * conf
-                opposing.append(f"{agent_id}(conf={conf:.2f})")
+    m1_score = round(m1_align / max(1.0, m1_weight), 2) if m1_weight > 0 else 0.0
+    m1_verdict = "SUPPORTING" if m1_score >= 0.20 else ("OPPOSING" if m1_score <= -0.20 else "NEUTRAL")
 
-    norm_score = round(weighted_alignment / max(1.0, total_weight), 2)
-    verdict = "NEUTRAL"
-    if norm_score >= 0.25:
-        verdict = "HTF_SUPPORTING"
-    elif norm_score <= -0.25:
-        verdict = "HTF_OPPOSING"
+    m5_score = round(m5_align / max(1.0, m5_weight), 2) if m5_weight > 0 else 0.0
+    m5_verdict = "SUPPORTING" if m5_score >= 0.20 else ("OPPOSING" if m5_score <= -0.20 else "NEUTRAL")
+
+    htf_score = round(htf_align / max(1.0, htf_weight), 2) if htf_weight > 0 else 0.0
+    htf_verdict = "SUPPORTING" if htf_score >= 0.20 else ("OPPOSING" if htf_score <= -0.20 else "NEUTRAL")
+
+    # Time extension permission: HTF is supporting and M5 structure has not broken against us
+    can_extend_time = (htf_verdict == "SUPPORTING" and m5_verdict != "OPPOSING")
+
+    # Invalidation alert: M1 and M5 both oppose, or M1 opposes with high confidence (>= 0.70)
+    invalidation_alert = (
+        (m1_verdict == "OPPOSING" and m5_verdict == "OPPOSING")
+        or (m1_verdict == "OPPOSING" and m1_opp_conf >= 0.70)
+    )
 
     return {
-        "score": norm_score,
-        "verdict": verdict,
-        "supporting": supporting,
-        "opposing": opposing,
+        "m1": {"score": m1_score, "verdict": m1_verdict, "opposing_conf": m1_opp_conf},
+        "m5": {"score": m5_score, "verdict": m5_verdict, "opposing_conf": m5_opp_conf},
+        "htf": {"score": htf_score, "verdict": htf_verdict, "supporting": htf_supp, "opposing": htf_opp},
+        "can_extend_time": can_extend_time,
+        "invalidation_alert": invalidation_alert,
     }
+
+
+def evaluate_htf_reversal_bias(pos_direction: str, context: dict[str, Any] | None) -> dict[str, Any]:
+    """Compatibility wrapper returning HTF bias dict."""
+    return evaluate_multi_tf_watchdogs(pos_direction, context)["htf"]
 
 
 @dataclass
@@ -148,16 +202,38 @@ class PositionManager:
         moment = now or utcnow()
         actions: list[str] = []
         ctx = context or {}
-        htf_bias = evaluate_htf_reversal_bias(pos.side, ctx)
+        watchdogs = evaluate_multi_tf_watchdogs(pos.side, ctx)
+        htf_bias = watchdogs["htf"]
 
         held = (moment - state.opened_at).total_seconds() if state.opened_at is not None else 0.0
 
-        # Hard time-stop.
-        if state.opened_at is not None and held >= s.max_hold_seconds:
-            await self.client.close_position(pos.ticket, price=price)
-            self.untrack(pos.ticket)
-            actions.append("time_stop")
-            return actions
+        # Smart Multi-Timeframe Watchdog Time Stop (Menggantikan 900s dumb timer)
+        max_hold = s.max_hold_seconds
+        if state.opened_at is not None and held >= max_hold:
+            can_extend = s.watchdog_enabled and watchdogs["can_extend_time"]
+            extended_limit = max_hold + getattr(s, "watchdog_time_extension_seconds", 300)
+            if can_extend and held < extended_limit:
+                log.info(
+                    "JUGGLER WATCHDOG TIME EXTENSION: Holding ticket %s (held %ds < %ds) — Satpam M5/HTF confirms structural support (%s)",
+                    pos.ticket,
+                    int(held),
+                    extended_limit,
+                    htf_bias["supporting"],
+                )
+            else:
+                log.info(
+                    "JUGGLER WATCHDOG TIME STOP: Closing ticket %s (held %ds >= %ds, can_extend=%s, htf=%s, m5=%s)",
+                    pos.ticket,
+                    int(held),
+                    max_hold,
+                    can_extend,
+                    htf_bias["verdict"],
+                    watchdogs["m5"]["verdict"],
+                )
+                await self.client.close_position(pos.ticket, price=price)
+                self.untrack(pos.ticket)
+                actions.append("time_stop")
+                return actions
 
         # Institutional Overnight Flat Guard (Close intraday trades before rollover/weekend gap)
         if s.overnight_flat_utc_enabled and is_overnight_flat_window(moment):
@@ -178,11 +254,7 @@ class PositionManager:
 
             # 1. Physical Noise Floor: Minimum 16 pips ($1.60) breathing room on Gold
             min_breath_usd = round(pos.volume * 1.60 * 100.0, 2)
-            equity = float(ctx.get("equity", 0.0) or 0.0) if ctx else 0.0
-            equity_clamp = round(equity * (s.risk_per_trade_pct / 100.0) * 1.25, 2) if equity > 0 else s.hard_loss_clamp_usd
-            base_clamp = max(s.hard_loss_clamp_usd, equity_clamp)
-            if live_avg_win >= 2.0:
-                base_clamp = max(base_clamp, round(live_avg_win * 1.1, 2))
+            base_clamp = max(s.hard_loss_clamp_usd, round(live_avg_win * 1.25, 2) if live_avg_win >= 2.0 else s.hard_loss_clamp_usd)
             effective_clamp_usd = max(min_breath_usd, base_clamp)
 
             # 2. Phase 0: Noise Absorption Grace Period (0 - 15s)
@@ -190,7 +262,29 @@ class PositionManager:
             if held < 15 and current_loss > -(effective_clamp_usd * 1.6):
                 pass  # Grace period: absorb spread friction
 
-            # 3. Phase 1: HTF Trend Breakdown (Early Cut — Do NOT Hope!)
+            # 3. Phase 1: Satpam M1/M5 Early Invalidation Cut (Cut Loss Dini, Tidak Menunggu Kena SL Penuh!)
+            elif (
+                s.watchdog_early_invalidation_enabled
+                and held >= 15
+                and current_loss <= -max(4.0, round(effective_clamp_usd * s.watchdog_early_loss_ratio, 2))
+                and watchdogs["invalidation_alert"]
+            ):
+                log.warning(
+                    "JUGGLER WATCHDOG EARLY INVALIDATION CUT: Cutting ticket %s (%s %.2f, loss=%.2f <= -$%.2f) — Satpam M1/M5 adverse signal (M1=%s, M5=%s)",
+                    pos.ticket,
+                    pos.side,
+                    pos.volume,
+                    current_loss,
+                    round(effective_clamp_usd * s.watchdog_early_loss_ratio, 2),
+                    watchdogs["m1"]["verdict"],
+                    watchdogs["m5"]["verdict"],
+                )
+                await self.client.close_position(pos.ticket, price=price)
+                self.untrack(pos.ticket)
+                actions.append("watchdog_early_invalidation_cut")
+                return actions
+
+            # 4. Phase 2: HTF Trend Breakdown (Early Cut — Do NOT Hope!)
             # If floating loss >= 65% of clamp AND Higher Timeframes (H4/H1/M30/M15) are actively opposing us:
             elif (
                 held >= 15
@@ -211,7 +305,7 @@ class PositionManager:
                 actions.append("juggler_htf_breakdown_cut")
                 return actions
 
-            # 4. Phase 2: Dynamic Hard Clamp (Adaptive & HTF-Protected)
+            # 5. Phase 3: Dynamic Hard Clamp (Adaptive & HTF-Protected)
             elif s.hard_loss_clamp_enabled and current_loss <= -abs(effective_clamp_usd):
                 # If HTF strongly supports position and held < 60s, allow small 1.25x buffer for reversal wick
                 if htf_bias["verdict"] == "HTF_SUPPORTING" and held < 60 and current_loss > -(effective_clamp_usd * 1.25):
@@ -238,7 +332,7 @@ class PositionManager:
                     actions.append("juggler_dynamic_clamp")
                     return actions
 
-            # 5. Phase 3: Duration Stagnation Cut (90s - 150s with no reversal momentum)
+            # 6. Phase 4: Duration Stagnation Cut (90s - 150s with no reversal momentum)
             elif state.opened_at is not None and held >= 90:
                 duration_loss_limit = max(2.50, round(effective_clamp_usd * 0.60, 2))
                 if current_loss <= -duration_loss_limit and htf_bias["verdict"] != "HTF_SUPPORTING":
@@ -254,7 +348,7 @@ class PositionManager:
                     actions.append("juggler_duration_loss_cut")
                     return actions
 
-            # 6. Phase 4: Time-Decay Loss Cut (>180s)
+            # 7. Phase 5: Time-Decay Loss Cut (>180s)
             elif state.opened_at is not None and held >= s.loss_time_decay_seconds:
                 if current_loss <= -abs(s.loss_time_decay_min_loss_usd):
                     log.info(
@@ -293,10 +387,11 @@ class PositionManager:
                 actions.append("target_proximity_tp")
                 return actions
 
-            # 5. Dynamic Risk-Free Break-Even Lock:
-            # As soon as profit reaches >= $2.50 (or ~25 pips), slide SL to entry + 0.15 (locks in +$0.60 profit risk-free)
-            be_sl = round(state.entry + 0.15 if pos.is_long else state.entry - 0.15, 2)
-            be_trigger_usd = max(2.50, round(pos.volume * 0.50 * 100.0, 2))
+            # 5. Dynamic Risk-Free Fast Break-Even Lock (BEP+):
+            # As soon as profit reaches >= $1.80 (or ~12 pips on scalper size), slide SL to entry + 0.10 (locks in risk-free)
+            be_sl = round(state.entry + 0.10 if pos.is_long else state.entry - 0.10, 2)
+            be_trigger_pips = getattr(s, "fast_breakeven_pips", 12.0)
+            be_trigger_usd = max(1.80, round(pos.volume * (be_trigger_pips / 100.0) * 100.0, 2))
             if current_profit >= be_trigger_usd:
                 if pos.is_long and (pos.sl is None or pos.sl < be_sl):
                     await self.client.modify_position(pos.ticket, sl=be_sl, tp=pos.tp)

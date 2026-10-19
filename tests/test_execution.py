@@ -279,3 +279,51 @@ async def test_notifier_disabled_is_noop() -> None:
     assert await notifier.send("hello") is False
     assert await notifier.alert("danger") is False
     assert notifier.sent == 0
+
+
+async def test_watchdog_time_extension_and_invalidation_cut() -> None:
+    from agents.base import AgentSignal
+    from spk.decision import ACTION_BUY, SPKDecision
+
+    client = MockMT5Client()
+    pm = PositionManager(client=client, settings=settings)
+    now = utcnow()
+    pos = await _open_position(client, sl=2335.0, volume=0.10)
+    pos.time = now - timedelta(seconds=settings.max_hold_seconds + 30)
+
+    # 1. When HTF is supporting and M5 is not opposing -> Time Extension granted!
+    supporting_signals = [
+        AgentSignal(agent_id="TF-H4-Structure", division="timeframe", vote=1, confidence=0.8),
+        AgentSignal(agent_id="TF-H1-Regime", division="timeframe", vote=1, confidence=0.8),
+        AgentSignal(agent_id="TF-M5-Inspector", division="timeframe", vote=0, confidence=0.5),
+    ]
+    dec_supp = SPKDecision(action=ACTION_BUY, score=4.0, confidence=0.8, votes=supporting_signals)
+    actions = await pm.manage(pos, price=2349.5, now=now, context={"decision": dec_supp})
+    assert "time_stop" not in actions  # Extended!
+
+    # 2. When M1 and M5 both oppose our position -> Early Invalidation Cut!
+    adverse_signals = [
+        AgentSignal(agent_id="TF-M1-Sniper", division="timeframe", vote=-1, confidence=0.8),
+        AgentSignal(agent_id="TF-M5-Inspector", division="timeframe", vote=-1, confidence=0.7),
+    ]
+    dec_adv = SPKDecision(action=ACTION_BUY, score=-3.0, confidence=0.8, votes=adverse_signals)
+    pm._states[pos.ticket].opened_at = now - timedelta(seconds=60)  # Held 60s
+    pos.profit = -7.00  # floating loss exceeding early threshold ($7.00 >= $6.40)
+    actions_cut = await pm.manage(pos, price=2349.5, now=now, context={"decision": dec_adv})
+    assert "watchdog_early_invalidation_cut" in actions_cut
+    assert await client.positions("XAUUSD") == []
+
+
+async def test_fast_breakeven_lock() -> None:
+    client = MockMT5Client()
+    pm = PositionManager(client=client, settings=settings)
+    now = utcnow()
+    pos = await _open_position(client, sl=2340.0, volume=0.10)
+    pos.profit = 2.50  # +25 pips on 0.10 lot = $2.50 >= be_trigger_usd $1.80
+
+    actions = await pm.manage(pos, price=2350.25, now=now)
+    assert "breakeven_locked" in actions
+    refreshed = (await client.positions("XAUUSD"))[0]
+    assert refreshed.sl == round(pos.price_open + 0.10, 2)  # Locked into entry + 0.10
+
+
