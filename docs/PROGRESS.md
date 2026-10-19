@@ -35,6 +35,43 @@ Aturan singkat:
 
 ---
 
+## 2026-10-20 — Scalper Radar Inactivity Watchdog & Veto Deadlock Diagnostics
+
+**Phase / Area:** Runtime Telemetry & Market Inactivity Intelligence (`runtime.py`, `config/settings.py`, `tests/test_runtime.py`)
+**Status:** Done
+
+**Yang dikerjakan**
+- **Mengembangkan Scalper Radar Inactivity Watchdog (M1/M5 Real-Time Intelligence):**
+  1. **Mengatasi Kebuntuan Informasi Saat Bot Idle (5-10 Menit Tanpa Trade):**
+     - Sebelumnya, bot beroperasi secara *silent polling* saat tidak ada trade, sehingga operator tidak mengetahui apakah bot sedang terkena deadlock veto, harga di chop zone, atau menunggu trigger tertentu.
+     - Dibuat modul otomatis `_check_scalper_radar` dan `_emit_scalper_radar_report` di `runtime.py`.
+  2. **Diagnostik Veto & Deadlock Arbitrase:**
+     - Mendeteksi apakah terjadi deadlock dua arah (`VETO_BUY` dari satu agen vs `VETO_SELL` dari agen lain).
+     - Mendeteksi apakah harga terjebak di `VETO_ALL` (M1 Mid Dead Zone).
+     - Mengidentifikasi secara eksplisit agen mana yang menahan posisi dan alasannya.
+  3. **Snapshot Taktikal M1 & Gelombang M5 (Bukan HTF Lagging):**
+     - Melaporkan support, resistance, span, dan posisi persentase harga di rentang M1 (`m1_pos_pct`).
+     - Melaporkan kemiringan EMA M5 (`Tech-Trend`) dan status volatilitas (`Tech-Volatility`: squeeze vs expansion).
+     - Menghitung level pemicu aksi riil (*actionable triggers*): Level Upper 30% untuk Ping SELL, Level Lower 30% untuk Pong BUY, serta batas Breakout/Breakdown.
+  4. **Multi-Channel Delivery (Log + WebSocket Broadcast):**
+     - Dicatat dalam log terstruktur `log.info("SCALPER RADAR [idle=...]: ...")`.
+     - Ditransmisikan langsung via WebSocket telemetry (`type: "scalper_radar"`) untuk konsumsi dashboard Web UI cockpit.
+     - Diintegrasikan ke dalam `runtime.snapshot()` dan `runtime.telemetry()`.
+  5. **Pengujian Unit:**
+     - Penambahan unit test `test_runtime_scalper_radar_inactivity_watchdog()` di `tests/test_runtime.py`.
+     - 53/53 unit tests lulus (100%).
+
+**File tersentuh**
+- `config/settings.py` — Penambahan parameter `radar_watchdog_enabled = True` dan `radar_report_interval_s = 300` (5 menit).
+- `runtime.py` — Pelacakan idle, implementasi `_check_scalper_radar`, `_emit_scalper_radar_report`, integrasi `snapshot()` dan `telemetry()`.
+- `tests/test_runtime.py` — Penambahan test `test_runtime_scalper_radar_inactivity_watchdog` dan resilient UTC import.
+- `docs/PROGRESS.md` — Dokumentasi fitur dan log kronologis.
+
+**Verifikasi**
+- `python -m pytest tests/test_runtime.py tests/test_spk_veto.py tests/test_technical_division.py` → 53 passed in 0.51s.
+
+---
+
 ## 2026-10-20 — Grade AAA M1 Ping-Pong Architecture: Strict 3-Zone Anti-Chasing & Mid-Channel Dead Zone Veto (VETO_ALL)
 
 **Phase / Area:** SPK Veto Engine & Technical S/R Architecture (`agents/divisions/technical/agents.py`, `spk/veto.py`, `agents/state.py`, `agents/base.py`, `config/settings.py`)

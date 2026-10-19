@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+try:
+    from datetime import UTC
+except ImportError:
+    UTC = timezone.utc
 
 from agents.state import utcnow
 from core.market_data import Candle, tf_seconds
@@ -81,3 +86,31 @@ async def test_runtime_opens_and_closes_trade() -> None:
         await rt.client.close_position(ticket)
         await rt._manage_positions()
         assert ticket not in rt._trades
+
+
+async def test_runtime_scalper_radar_inactivity_watchdog() -> None:
+    rt = _runtime()
+    _seed(rt, bullish=False)
+    rt.settings.radar_watchdog_enabled = True
+    rt.settings.radar_report_interval_s = 10
+    
+    # Simulate 20 seconds idle since last order
+    rt._last_order_placed_at = utcnow() - timedelta(seconds=20)
+    rt._last_radar_report_at = utcnow() - timedelta(seconds=20)
+    
+    await rt.step()
+    
+    # Radar watchdog must have emitted a diagnostic snapshot
+    assert rt._last_radar_snapshot is not None
+    snap = rt._last_radar_snapshot
+    assert "idle_minutes" in snap
+    assert "status" in snap
+    assert "blocker" in snap
+    assert "m1_range" in snap
+    assert "m5_wave" in snap
+    assert "triggers" in snap
+    
+    # Introspection & Telemetry must include the radar payload
+    assert rt.snapshot()["scalper_radar"] is not None
+    assert rt.telemetry()["scalper_radar"] is not None
+

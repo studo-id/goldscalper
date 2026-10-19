@@ -152,6 +152,10 @@ class Settings(BaseSettings):
     micro_sr_dead_zone_enabled: bool = True
     micro_sr_dead_zone_max_span: float = 12.00  # Max M1 span (USD) to enforce 30/40/30 dead zone
 
+    # --- Scalper Radar Inactivity Watchdog (M1/M5 Intelligence) ---
+    radar_watchdog_enabled: bool = True
+    radar_report_interval_s: int = 300          # 5 minutes: emit scalper radar report if no trades
+
     # --- BizDev: Rebate & Friction Engine ---
     bizdev_enabled: bool = True
     rebate_per_lot_usd: float = 6.00         # Estimated IB rebate per lot on XAUUSD

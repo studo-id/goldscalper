@@ -125,6 +125,11 @@ class Runtime:
         self._last_equity: float = 10000.0
         self._last_balance: float = 10000.0
 
+        # --- Scalper Radar Watchdog Trackers ---
+        self._last_order_placed_at: datetime = utcnow()
+        self._last_radar_report_at: datetime = utcnow()
+        self._last_radar_snapshot: dict[str, Any] | None = None
+
         # --- The Juggler & BizDev Day Trackers ---
         self._sod_date = utcnow().astimezone(WIB).date()
         self._sod_balance: float | None = None
@@ -343,6 +348,7 @@ class Runtime:
             result = await self.order_manager.execute(decision, state)
             if result is not None and result.ok and result.ticket is not None:
                 self.orders_placed += 1
+                self._last_order_placed_at = utcnow()
                 risk = None
                 if decision.entry is not None and decision.sl is not None:
                     risk = abs(decision.entry - decision.sl)
@@ -358,6 +364,9 @@ class Runtime:
                     "last_price": result.price or decision.entry,
                     "last_profit": 0.0,
                 }
+
+        # Scalper Radar Inactivity Watchdog Check (diagnose vetoes & market when idle)
+        await self._check_scalper_radar(state, decision)
 
         await self._manage_positions()
         return decision
@@ -741,6 +750,122 @@ class Runtime:
             log.debug("notifier close failed: %s", exc)
         log.info("runtime stopped (orders=%d)", self.orders_placed)
 
+    # --- Scalper Radar Inactivity Watchdog -------------------------------------
+    async def _check_scalper_radar(self, state: SharedState | None, decision: Any) -> None:
+        """Examine market structure, M1 channel, and veto deadlocks periodically when idle."""
+        if not getattr(self.settings, "radar_watchdog_enabled", True) or state is None or decision is None:
+            return
+
+        now_dt = utcnow()
+        idle_s = (now_dt - self._last_order_placed_at).total_seconds()
+        interval = getattr(self.settings, "radar_report_interval_s", 300)
+
+        if idle_s >= interval and (now_dt - self._last_radar_report_at).total_seconds() >= interval:
+            self._last_radar_report_at = now_dt
+            await self._emit_scalper_radar_report(state, decision, idle_s)
+
+    async def _emit_scalper_radar_report(self, state: SharedState, decision: Any, idle_s: float) -> None:
+        from agents.state import VETO_ALL, VETO_BUY, VETO_SELL
+
+        idle_min = round(idle_s / 60.0, 1)
+        votes = getattr(decision, "votes", []) or []
+
+        # 1. Veto & Deadlock Diagnostics:
+        buyer_blockers = [v for v in votes if getattr(v, "veto", None) in (VETO_BUY, VETO_ALL)]
+        seller_blockers = [v for v in votes if getattr(v, "veto", None) in (VETO_SELL, VETO_ALL)]
+        deadlock = bool(buyer_blockers and seller_blockers and not any(getattr(v, "veto", None) == VETO_ALL for v in votes))
+        veto_all_active = any(getattr(v, "veto", None) == VETO_ALL for v in votes)
+
+        if veto_all_active:
+            blocker_desc = "M1 Mid Dead Zone (30%-70% chop, VETO_ALL)"
+            conflict_status = "MID_CHOP_DEAD_ZONE"
+        elif deadlock:
+            b_name = buyer_blockers[0].agent_id
+            s_name = seller_blockers[0].agent_id
+            blocker_desc = f"Deadlock: {b_name} (VETO_BUY) vs {s_name} (VETO_SELL)"
+            conflict_status = "DEADLOCK_CONFLICT"
+        elif buyer_blockers:
+            blocker_desc = f"Blocked BUY: {buyer_blockers[0].agent_id} ({buyer_blockers[0].reasoning or buyer_blockers[0].veto})"
+            conflict_status = "BUY_VETOED"
+        elif seller_blockers:
+            blocker_desc = f"Blocked SELL: {seller_blockers[0].agent_id} ({seller_blockers[0].reasoning or seller_blockers[0].veto})"
+            conflict_status = "SELL_VETOED"
+        elif getattr(decision, "hard_veto", False):
+            blocker_desc = f"Hard Veto: {getattr(decision, 'veto_reason', 'circuit_breaker')}"
+            conflict_status = "HARD_VETO"
+        elif getattr(decision, "action", None) == "HOLD":
+            blocker_desc = f"Neutral SPK Consensus (Score: {getattr(decision, 'score', 0.0):+.2f})"
+            conflict_status = "SPK_NEUTRAL"
+        else:
+            blocker_desc = "Awaiting execution trigger"
+            conflict_status = "READY"
+
+        # 2. M1 Tactical Scalper Snapshot:
+        extra = getattr(state, "extra", {}) or {}
+        close = state.last_price() or 0.0
+        m1_sup = float(extra.get("m1_support") or 0.0)
+        m1_res = float(extra.get("m1_resistance") or 0.0)
+        m1_span = float(extra.get("m1_span") or (m1_res - m1_sup if m1_res > m1_sup else 0.0))
+        m1_pos = float(extra.get("m1_pos_pct") or 0.5)
+
+        # 3. M5 Wave Dynamics:
+        trend_sig = next((v for v in votes if getattr(v, "agent_id", None) == "Tech-Trend"), None)
+        vol_sig = next((v for v in votes if getattr(v, "agent_id", None) == "Tech-Volatility"), None)
+        trend_desc = trend_sig.reasoning if trend_sig else "Trend neutral"
+        vol_desc = (vol_sig.metadata.get("regime") if vol_sig and hasattr(vol_sig, "metadata") and isinstance(vol_sig.metadata, dict) else "normal")
+
+        # 4. Actionable Scalper Triggers:
+        triggers: dict[str, str] = {}
+        if m1_sup > 0 and m1_res > m1_sup:
+            sell_lvl = m1_res - (0.30 * m1_span)
+            buy_lvl = m1_sup + (0.30 * m1_span)
+            triggers["ping_sell"] = f"SELL >= ${sell_lvl:.2f} (Upper 30%)"
+            triggers["pong_buy"] = f"BUY <= ${buy_lvl:.2f} (Lower 30%)"
+            triggers["breakout_buy"] = f"BUY Breakout > ${m1_res + 1.20:.2f}"
+            triggers["breakdown_sell"] = f"SELL Breakdown < ${m1_sup - 1.20:.2f}"
+
+        report = {
+            "idle_minutes": idle_min,
+            "status": conflict_status,
+            "blocker": blocker_desc,
+            "close": close,
+            "m1_range": {
+                "support": m1_sup,
+                "resistance": m1_res,
+                "span": round(m1_span, 2),
+                "position_pct": round(m1_pos * 100.0, 1),
+            },
+            "m5_wave": {
+                "trend": trend_desc,
+                "volatility": vol_desc,
+            },
+            "triggers": triggers,
+            "spk_score": getattr(decision, "score", 0.0),
+            "ts": utcnow().isoformat(),
+        }
+        self._last_radar_snapshot = report
+
+        log.info(
+            "SCALPER RADAR [idle=%0.1fm]: %s | Price: $%.2f (pos %0.1f%% of $%.2f M1 span: $%.2f-$%.2f) | M5: %s (%s) | Triggers: %s",
+            idle_min,
+            blocker_desc,
+            close,
+            m1_pos * 100.0,
+            m1_span,
+            m1_sup,
+            m1_res,
+            trend_desc,
+            vol_desc,
+            ", ".join(f"{k}: {v}" for k, v in triggers.items()) if triggers else "None",
+        )
+
+        try:
+            from api.ws_manager import manager
+            if manager.count > 0:
+                await manager.broadcast({"type": "scalper_radar", "data": report})
+        except Exception as exc:  # noqa: BLE001
+            log.debug("scalper radar ws broadcast error: %s", exc)
+
     # --- introspection ---------------------------------------------------------
     def snapshot(self) -> dict[str, Any]:
         mt5_trade_allowed = getattr(self.client, "trade_allowed", True)
@@ -757,6 +882,7 @@ class Runtime:
             "streamer": self.streamer.snapshot(),
             "orchestrator": self.orchestrator.snapshot(),
             "patterns": self.patterns.top(5),
+            "scalper_radar": self._last_radar_snapshot,
         }
 
     def agent_health(self) -> list[dict[str, Any]]:
@@ -884,6 +1010,7 @@ class Runtime:
             }
             if d is not None
             else None,
+            "scalper_radar": self._last_radar_snapshot,
         }
 
 
