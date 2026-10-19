@@ -133,7 +133,7 @@ class PositionSizer(RiskAgent):
                 mode_name = "DEFENSE"
                 health_mult = max(0.50, round(1.0 + (daily_pnl_pct / 25.0), 3))
                 if is_high_conviction:
-                    health_mult = min(1.0, round(health_mult * 1.25, 3))
+                    health_mult = min(1.25, round(health_mult * 1.30, 3))
             elif daily_pnl_pct >= 3.0:
                 # GROWTH: expand lot dynamically using house money from broker gains
                 mode_name = "GROWTH"

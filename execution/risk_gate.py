@@ -124,8 +124,8 @@ def evaluate(
     is_high_conviction = bool(sizer.get("high_conviction")) or confidence >= 0.70 or score >= 5.0
     daily_pnl_pct = float(getattr(state, "daily_pnl_pct", 0.0) or 0.0) if state else 0.0
 
-    if is_high_conviction or sizer.get("sizing_mode") == "TARGET_SEEKING":
-        # Trust Sizer's portfolio-aware dynamic calculation directly
+    if is_high_conviction or sizer.get("sizing_mode") == "TARGET_SEEKING" or base_size <= 0.04:
+        # Trust Sizer's portfolio-aware dynamic calculation directly (avoid double-shrinkage)
         scaled_size = base_size
     else:
         scaled_size = _round_to_step(base_size * max(0.50, confidence), s.lot_step)

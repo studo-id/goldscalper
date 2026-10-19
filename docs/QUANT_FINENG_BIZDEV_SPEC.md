@@ -162,7 +162,8 @@ $$\text{Friction Ratio} = \frac{\text{Total Friction Cost}}{\text{Gross Profit G
 * **Golden Confluence (Setup Grade A+):**
   Mengadopsi prinsip konfluensi multi-indikator teruji (Bollinger Band Compression Squeeze + RSI Extreme Divergence <30/>70 + Micro-wick Rejection at Key Structure):
   - Ketika SPK mendeteksi konfluensi lintas divisi dengan Score $\ge 5.0$ dan Confidence $\ge 70\%$, setup diklasifikasikan sebagai **`GRADE A+ HIGH-CONVICTION`**.
-  - Setup Grade A+ dibebaskan dari *double-shrinkage*, diberikan alokasi lot pemulihan **`0.03 – 0.04 lot`**, dan ditargetkan menyentuh TP Runner $\ge \$7.50$ s/d $\$15.00$ dengan rasio Payoff $\ge 1.5\text{x}$.
+  - Setup Grade A+ dibebaskan dari *double-shrinkage*, diberikan alokasi lot pemulihan dengan multiplier hingga **`1.25x` (0.10 lot di saldo ~7k Cent)**, dan ditargetkan menyentuh TP Runner $\ge \$7.50$ s/d $\$15.00$ dengan rasio Payoff $\ge 1.5\text{x}$.
+  - **Anti-Hunting Reversal SL Cushion:** Jarak Stop Loss fisik MT5 pada pembalikan arah diperlebar minimal $\ge 35$ pips ($\$3.50$) agar tidak terpicu prematur oleh gocekan sumbu (*wick hunting*) broker, menyerahkan keputusan cutloss dini kepada Juggler Watchdog secara cerdas.
 * **Risk-Free Pyramiding (Scale-In saat Prediksi Terkonfirmasi Akurat):**
   - Jika posisi terbuka sedang running profit $\ge +20$ pips ($+\$2.00$) dan candle-candle berikutnya mengonfirmasi kelanjutan tren:
   - Bot diizinkan melakukan **entry tambahan (Layer 2)** searah tren.

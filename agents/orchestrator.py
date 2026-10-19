@@ -178,8 +178,8 @@ class Orchestrator:
                             live_avg_win = float(state.extra.get("live_avg_win", 0.0) or 0.0)
                             rem_target = state.extra.get("remaining_target_usd")
 
-                            # Dynamic SL: spread-aware noise cushion
-                            sl_dist = max(1.80, round(spread_usd * 2.2, 2))
+                            # Dynamic SL: spread-aware noise cushion (min $3.50 / 35 pips to prevent broker wick hunting)
+                            sl_dist = max(3.50, round(spread_usd * 3.5, 2))
 
                             # Dynamic TP: anchored to live avg win and sprint target proximity
                             base_tp_dist = max(5.00, round(live_avg_win * 1.25, 2))

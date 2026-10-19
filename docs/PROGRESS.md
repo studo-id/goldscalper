@@ -35,6 +35,38 @@ Aturan singkat:
 
 ---
 
+## 2026-10-19 — The Juggler Verdict: Defense Mode Capital Preservation, Grade A+ Conviction Boost & Anti-Hunting Reversal SL
+
+**Phase / Area:** The Juggler FinEng & Execution Architecture (`agents/divisions/risk/agents.py`, `agents/orchestrator.py`, `execution/risk_gate.py`, `tests/test_risk_division.py`)
+**Status:** Done
+
+**Yang dikerjakan**
+- **Penegakan Hukum Juggler pada Pertanyaan Ukuran Lot di Mode DEFENSE:**
+  1. **Keputusan Kuantitatif Juggler (Capital Preservation):**
+     - Sesuai Hukum Sistem Portofolio (Pilar 1: `daily_pnl_pct < 0%` = DEFENSE Mode), Juggler **menolak keras menaikkan baseline risiko akun** (misal dari 0.5% ke 1.0%). Menaikkan risiko statis di tengah drawdown harian melanggar prinsip anti-bleeding. Baseline trade reguler dipertahankan secara disiplin di **0.07 – 0.08 lot** pada saldo 7,161 USC.
+  2. **Grade A+ High-Conviction Adaptive Sizing:**
+     - Di `agents/divisions/risk/agents.py`: Memberikan multiplier pemulihan hingga **`1.25x` (0.10 lot)** khusus untuk setup Grade A+ High-Conviction (skor SPK $\ge 5.0$ atau confidence $\ge 70\%$). Setup biasa tetap defensif di 0.07–0.08 lot.
+  3. **Anti-Hunting Reversal SL Cushion:**
+     - Pada tiket `#4894659861`, SL fisik di MT5 dipasang terlalu mepet (`1.9 pips` / `$1.90`) sehingga terkena hunting sumbu broker di detik 35.
+     - Di `agents/orchestrator.py`, parameter `sl_dist` reversal diperlebar menjadi minimum `max(3.50, round(spread_usd * 3.5, 2))` (35 pips / $3.50+). MT5 broker order terlindungi sebagai safety rail bencana, sementara manajemen dan cut-loss dini diserahkan penuh kepada kecerdasan Satpam Juggler Watchdog (setelah 60s M1 close).
+  4. **Proteksi Double-Shrinkage Lot Kecil:**
+     - Di `execution/risk_gate.py`, memastikan order $\le 0.04$ lot tidak terkena pengalian confidence ganda (`scaled_size = base_size`).
+
+**File tersentuh**
+- `agents/divisions/risk/agents.py` — Multiplier pemulihan 1.25x untuk Grade A+ High-Conviction di DEFENSE mode.
+- `agents/orchestrator.py` — Memperlebar batas noise cushion reversal SL ke minimal 35 pips ($3.50).
+- `execution/risk_gate.py` — Bypass confidence reduction untuk lot $\le 0.04$.
+- `tests/test_risk_division.py` — Kompatibilitas UTC dan verifikasi preservasi lot defensif.
+- `docs/QUANT_FINENG_BIZDEV_SPEC.md` — Dokumentasi spesifikasi High-Conviction recovery sizing dan Anti-Hunting SL.
+
+**Verifikasi**
+- `pytest tests/test_risk_division.py tests/test_orchestrator.py tests/test_execution.py tests/test_clock.py` → 67 passed in 0.36s.
+
+**Catatan / Next**
+- Deploy file ke production server (`studo@100.114.150.48`) dan restart container `gs-bot`.
+
+---
+
 ## 2026-10-19 — M1 Candle Formation Grace Period (60s Minimum Hold for Early Cut)
 
 **Phase / Area:** Execution Layer, Risk & Exit Protection (`execution/position_manager.py`, `config/settings.py`, `.env.example`, `tests/test_execution.py`)
