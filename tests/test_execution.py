@@ -322,14 +322,14 @@ async def test_watchdog_time_extension_and_invalidation_cut() -> None:
     ]
     dec_m5_supp = SPKDecision(action=ACTION_BUY, score=0.0, confidence=0.7, votes=m5_supp_signals)
     pm._states[pos.ticket].opened_at = now - timedelta(seconds=65)
-    pos.profit = -7.00
+    pos.profit = -5.00
     actions_hold = await pm.manage(pos, price=2349.5, now=now, context={"decision": dec_m5_supp})
     assert "watchdog_early_invalidation_cut" not in actions_hold
     assert len(await client.positions("XAUUSD")) == 1
 
     # 2c. Only once M5 also confirms OPPOSING (both M1 & M5 oppose): Early Invalidation Cut triggers!
     pm._states[pos.ticket].opened_at = now - timedelta(seconds=65)
-    pos.profit = -7.00
+    pos.profit = -5.00
     actions_cut = await pm.manage(pos, price=2349.5, now=now, context={"decision": dec_adv})
     assert "watchdog_early_invalidation_cut" in actions_cut
     assert await client.positions("XAUUSD") == []

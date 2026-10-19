@@ -135,6 +135,7 @@ class Settings(BaseSettings):
     daily_loss_limit_pct: float = 15.0       # Hard shutdown when daily loss hits -15%
     lot_sizing_mode: str = "TARGET_SEEKING"  # "FIXED" | "ATR_RISK" | "TARGET_SEEKING"
     target_seeking_swing_usd: float = 3.00   # Estimated swing USD per trade for target-seeking sizing
+    max_scalper_lot: float = 0.08            # Hard cap lot for fast scalper sprint to prevent outsized loss
 
     # --- Multi-Timeframe Watchdog (Satpam Bertingkat M1, M5, M15) ---
     watchdog_enabled: bool = True

@@ -167,8 +167,9 @@ class PositionSizer(RiskAgent):
             else:
                 taper_factor = 1.0
 
-            dynamic_size = base_lot * taper_factor
-            size = min(s.max_lot, max(s.min_lot, round_to_step(dynamic_size, s.lot_step)))
+            max_scalper_lot = float(getattr(s, "max_scalper_lot", 0.08) or 0.08)
+            dynamic_size = min(max_scalper_lot, base_lot * taper_factor)
+            size = min(max_scalper_lot, min(s.max_lot, max(s.min_lot, round_to_step(dynamic_size, s.lot_step))))
 
             return self.emit(
                 f"TARGET_SEEKING [{mode_name} x{health_mult:.2f}{' HIGH_CONV' if is_high_conviction else ''}]: rem=${remaining_usd:.2f}, clamp=${dynamic_clamp_budget:.2f}, lot={size}",

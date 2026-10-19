@@ -137,9 +137,14 @@ def evaluate_multi_tf_watchdogs(pos_direction: str, context: dict[str, Any] | No
     # Time extension permission: HTF is supporting and M5 structure has not broken against us
     can_extend_time = (htf_verdict == "SUPPORTING" and m5_verdict != "OPPOSING")
 
-    # Invalidation alert: M1 and M5 must BOTH oppose our position.
-    # If M5 is SUPPORTING, we do NOT cut early — we allow the M5 candle pattern to play out for reversal!
-    invalidation_alert = (m1_verdict == "OPPOSING" and m5_verdict == "OPPOSING")
+    # Invalidation alert:
+    # 1. Primary: M1 and M5 both oppose our position.
+    # 2. Strong M1 Oppose: If M1 is strongly opposing with high conviction (opposing_conf >= 0.70)
+    #    and M5 is not actively supporting (i.e. M5 is NEUTRAL or OPPOSING), alert to prevent ballooning drawdown.
+    invalidation_alert = (
+        (m1_verdict == "OPPOSING" and m5_verdict == "OPPOSING")
+        or (m1_verdict == "OPPOSING" and m1_opp_conf >= 0.70 and m5_verdict != "SUPPORTING")
+    )
 
     return {
         "m1": {"score": m1_score, "verdict": m1_verdict, "opposing_conf": m1_opp_conf},
@@ -250,15 +255,17 @@ class PositionManager:
             current_loss = float(pos.profit or 0.0)
             live_avg_win = float(ctx.get("live_avg_win", 0.0) or 0.0)
 
-            # 1. Physical Noise Floor: Minimum 16 pips ($1.60) breathing room on Gold
-            min_breath_usd = round(pos.volume * 1.60 * 100.0, 2)
+            # 1. Base Clamp: Anchored to live average win or configured hard clamp ($7.00)
             base_clamp = max(s.hard_loss_clamp_usd, round(live_avg_win * 1.25, 2) if live_avg_win >= 2.0 else s.hard_loss_clamp_usd)
-            effective_clamp_usd = max(min_breath_usd, base_clamp)
+            # STRICT HARD CEILING: Clamp loss CANNOT balloon out of proportion!
+            # Maximum loss allowed per scalper trade is capped strictly at 1.35x hard_loss_clamp_usd (max $8.50 - $9.50).
+            max_clamp_ceiling = round(s.hard_loss_clamp_usd * 1.35, 2)
+            effective_clamp_usd = min(base_clamp, max_clamp_ceiling)
 
             # 2. Phase 0: Noise & M1 Candle Formation Grace Period (0 - 60s)
-            # Never cut on unclosed M1 candle wicks (< 60s) unless catastrophic gap (>1.6x clamp)
+            # Never cut on unclosed M1 candle wicks (< 60s) unless loss breaches hard clamp ceiling (catastrophic gap)
             min_hold = getattr(s, "watchdog_min_hold_seconds", 60)
-            if held < min_hold and current_loss > -(effective_clamp_usd * 1.6):
+            if held < min_hold and current_loss > -(effective_clamp_usd * 1.15):
                 pass  # Grace period: allow 1 full M1 candle (60s) to form cleanly
 
             # 3. Phase 1: Satpam M1/M5 Early Invalidation Cut (Cut Loss Dini setelah 1 Candle M1 Close)
@@ -304,40 +311,29 @@ class PositionManager:
                 actions.append("juggler_htf_breakdown_cut")
                 return actions
 
-            # 5. Phase 3: Dynamic Hard Clamp (Adaptive & HTF-Protected)
+            # 5. Phase 3: Dynamic Hard Clamp (Strict Capital Protection - NO UNBOUNDED RISK)
             elif s.hard_loss_clamp_enabled and current_loss <= -abs(effective_clamp_usd):
-                # If HTF strongly supports position and held < 60s, allow small 1.25x buffer for reversal wick
-                if htf_bias["verdict"] == "HTF_SUPPORTING" and held < 60 and current_loss > -(effective_clamp_usd * 1.25):
-                    log.info(
-                        "JUGGLER HTF REVERSAL BUFFER: Holding ticket %s (held %ds, loss=%.2f) — HTF trend is supporting: %s",
-                        pos.ticket,
-                        int(held),
-                        current_loss,
-                        htf_bias["supporting"],
-                    )
-                else:
-                    log.warning(
-                        "JUGGLER DYNAMIC CLAMP: Cutting ticket %s (%s %.2f, loss=%.2f <= -$%.2f [HTF=%s, avg_win $%.2f])",
-                        pos.ticket,
-                        pos.side,
-                        pos.volume,
-                        current_loss,
-                        effective_clamp_usd,
-                        htf_bias["verdict"],
-                        live_avg_win,
-                    )
-                    await self.client.close_position(pos.ticket, price=price)
-                    self.untrack(pos.ticket)
-                    actions.append("juggler_dynamic_clamp")
-                    return actions
+                log.warning(
+                    "JUGGLER DYNAMIC CLAMP: Cutting ticket %s (%s %.2f, loss=%.2f <= -$%.2f [HTF=%s, avg_win $%.2f])",
+                    pos.ticket,
+                    pos.side,
+                    pos.volume,
+                    current_loss,
+                    effective_clamp_usd,
+                    htf_bias["verdict"],
+                    live_avg_win,
+                )
+                await self.client.close_position(pos.ticket, price=price)
+                self.untrack(pos.ticket)
+                actions.append("juggler_dynamic_clamp")
+                return actions
 
             # 6. Phase 4: Duration Stagnation Cut (90s - 150s with no reversal momentum)
             elif state.opened_at is not None and held >= 90:
                 duration_loss_limit = max(2.50, round(effective_clamp_usd * 0.60, 2))
                 if (
                     current_loss <= -duration_loss_limit
-                    and htf_bias["verdict"] != "HTF_SUPPORTING"
-                    and watchdogs["m5"]["verdict"] != "SUPPORTING"
+                    and (watchdogs["m1"]["verdict"] == "OPPOSING" or watchdogs["m5"]["verdict"] == "OPPOSING")
                 ):
                     log.info(
                         "JUGGLER DURATION-LOSS CUT: Ticket %s held %ds with loss=%.2f <= -$%.2f (momentum stalled)",

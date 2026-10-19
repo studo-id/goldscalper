@@ -35,6 +35,37 @@ Aturan singkat:
 
 ---
 
+## 2026-10-20 — Juggler Loss Clamp Hard Ceiling, Scalper Lot Cap & MT5 Connector Lint Fixes
+
+**Phase / Area:** The Juggler Dynamic Clamp & Execution (`execution/position_manager.py`, `agents/divisions/risk/agents.py`, `core/mt5_connector.py`, `config/settings.py`)
+**Status:** Done
+
+**Yang dikerjakan**
+- **Menghentikan Pembengkakan Floating Loss (Bug `min_breath_usd`) & Pembatasan Lot Scalper:**
+  1. **Eliminasi Pembengkakan Clamp Loss:**
+     - Menemukan bahwa tiket `#4897688982` melar hingga loss -$49.51 karena `min_breath_usd = pos.volume * 1.60 * 100` pada 0.27 lot menghasilkan $43.20, sehingga `max(min_breath_usd, base_clamp)` menaikkan clamp loss menjadi $43.20.
+     - Menghapus pembengkakan `min_breath_usd` dan menerapkan **Strict Hard Ceiling** pada clamp loss: `effective_clamp_usd = min(base_clamp, round(s.hard_loss_clamp_usd * 1.35, 2))`. Kerugian per trade kini **terkunci rapat maksimal di kisaran $7.00 - $9.45**, melindungi modal akun.
+  2. **Perbaikan Invalidation Alert & Duration Loss Cut:**
+     - Pada `invalidation_alert`: jika M1 strongly opposing (confidence $\ge 0.70$) dan M5 bukan supporting, alert aktif seketika tanpa harus menunggu pergantian candle M5 5 menit.
+     - Pada Duration Stagnation Cut (Phase 4): jika floating loss sudah mencapai $4.20 - $5.00 pada detik 90+ dan M1 berlawanan arah, trade dipotong tegas.
+  3. **Hard Cap Lot Scalper Sprint (`max_scalper_lot = 0.08`):**
+     - Pada akun cent Exness (ekuitas terbaca 6,975), sizer dibatasi ketat ke maksimal **0.08 lot** untuk mencegah pergerakan 1 poin Gold merugikan puluhan dolar.
+  4. **Pembersihan Lint Errors di `core/mt5_connector.py`:**
+     - Memperbaiki pengecekan `price is None` dan narrowing float pada `order_send`.
+     - Menghapus pemanggilan `int()` redundan pada `self.s.mt5_login`, `p.ticket`, `ticket` di `close_position` dan `modify_position`.
+
+**File tersentuh**
+- `execution/position_manager.py` — Penghapusan min_breath_usd, penegakan clamp ceiling $8.50 - $9.45, dan penguatan invalidation alert.
+- `agents/divisions/risk/agents.py` — Penerapan `max_scalper_lot` cap pada target-seeking sizer.
+- `config/settings.py` — Penambahan parameter `max_scalper_lot = 0.08`.
+- `core/mt5_connector.py` — Perbaikan lint error type narrowing dan penghapusan redundant `int()`.
+- `tests/test_execution.py` — Penyesuaian test fixture early invalidation cut.
+
+**Verifikasi**
+- `pytest tests/test_execution.py tests/test_risk_division.py tests/test_spk_veto.py tests/test_orchestrator.py tests/test_clock.py tests/test_technical_division.py` → 113 passed in 0.50s.
+
+---
+
 ## 2026-10-20 — M1 Micro-SR Detection with Configurable Confirmation Range & Bi-Directional Anti-Chasing Veto
 
 **Phase / Area:** Technical Division & SPK Veto Engine (`agents/divisions/technical/agents.py`, `config/settings.py`, `tests/test_technical_division.py`)

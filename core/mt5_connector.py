@@ -339,7 +339,7 @@ class NativeMT5Client:
     async def connect(self) -> bool:
         mt5 = self._load()
         kwargs: dict[str, Any] = {
-            "login": int(self.s.mt5_login),
+            "login": self.s.mt5_login,
             "password": self.s.mt5_password,
             "server": self.s.mt5_server,
         }
@@ -437,6 +437,10 @@ class NativeMT5Client:
             price = request.price
             action = mt5.TRADE_ACTION_PENDING
             order_type = mt5.ORDER_TYPE_BUY_LIMIT if is_buy else mt5.ORDER_TYPE_SELL_LIMIT
+
+        if price is None:
+            return OrderResult(ok=False, retcode=-1, comment="no price")
+
         payload = {
             "action": action,
             "symbol": request.symbol,
@@ -457,10 +461,12 @@ class NativeMT5Client:
         result = await asyncio.to_thread(mt5.order_send, payload)
         if result is None:
             return OrderResult(ok=False, retcode=-1, comment=str(mt5.last_error()))
+        raw_price = getattr(result, "price", price) or price
+        final_price = float(raw_price) if raw_price is not None else 0.0
         return OrderResult(
             ok=result.retcode == mt5.TRADE_RETCODE_DONE,
             ticket=int(getattr(result, "order", 0)) or None,
-            price=float(getattr(result, "price", price) or price),
+            price=final_price,
             volume=float(getattr(result, "volume", request.volume)),
             retcode=int(result.retcode),
             comment=str(getattr(result, "comment", "")),
@@ -495,7 +501,7 @@ class NativeMT5Client:
         self, ticket: int, price: float | None = None, volume: float | None = None
     ) -> OrderResult:
         mt5 = self._load()
-        current = [p for p in await self.positions() if int(p.ticket) == int(ticket)]
+        current = [p for p in await self.positions() if p.ticket == ticket]
         if not current:
             return OrderResult(ok=False, retcode=-1, comment="position not found")
         pos = current[0]
@@ -505,7 +511,7 @@ class NativeMT5Client:
         is_long = pos.is_long
         payload = {
             "action": mt5.TRADE_ACTION_DEAL,
-            "position": int(ticket),
+            "position": ticket,
             "symbol": pos.symbol,
             "volume": float(volume or pos.volume),
             "type": mt5.ORDER_TYPE_SELL if is_long else mt5.ORDER_TYPE_BUY,
@@ -520,7 +526,7 @@ class NativeMT5Client:
             return OrderResult(ok=False, retcode=-1, comment=str(mt5.last_error()))
         return OrderResult(
             ok=result.retcode == mt5.TRADE_RETCODE_DONE,
-            ticket=int(ticket),
+            ticket=ticket,
             price=float(getattr(result, "price", 0.0) or 0.0),
             retcode=int(result.retcode),
             comment=str(getattr(result, "comment", "")),
@@ -532,7 +538,7 @@ class NativeMT5Client:
         mt5 = self._load()
         payload = {
             "action": mt5.TRADE_ACTION_SLTP,
-            "position": int(ticket),
+            "position": ticket,
             "sl": float(sl) if sl is not None else 0.0,
             "tp": float(tp) if tp is not None else 0.0,
         }
@@ -541,7 +547,7 @@ class NativeMT5Client:
             return OrderResult(ok=False, retcode=-1, comment=str(mt5.last_error()))
         return OrderResult(
             ok=result.retcode == mt5.TRADE_RETCODE_DONE,
-            ticket=int(ticket),
+            ticket=ticket,
             retcode=int(result.retcode),
             comment=str(getattr(result, "comment", "")),
         )
