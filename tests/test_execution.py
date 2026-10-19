@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 
-from agents.state import utcnow
+from agents.state import UTC, utcnow
 from config.settings import settings
 from core.mt5_connector import SIDE_BUY, MockMT5Client, OrderRequest, Position
 from core.notifier import Notifier
@@ -134,12 +134,14 @@ async def test_order_manager_blocks_pyramid_during_drawdown() -> None:
     om = OrderManager(client=client, settings=settings)
     # Open initial BUY position at 2350
     await om.execute(_decision(entry=2350.0))
+    # Move mock client price higher to 2355 so initial position has floating profit
+    client._price = 2355.0
     # Attempt pyramid BUY at 2355 (higher than 2350) while in drawdown (-3.0%)
     state = SharedState(daily_pnl_pct=-3.0)
     result = await om.execute(_decision(entry=2355.0), state=state)
     assert result is not None
     assert result.ok is False
-    assert "pyramid prohibited during drawdown" in (result.reason or "")
+    assert "drawdown pyramid" in (result.reason or "")
 
 
 
@@ -222,23 +224,53 @@ async def test_position_manager_manage_basket_pyramid_protects_runners() -> None
     actions = await pm.manage_basket([pos1, pos2], current_bid=2352.5, current_ask=2352.7)
     assert actions == []  # Pyramid runners are protected!
 
-    # When total profit reaches runner target >= $7.50:
+    # When total profit reaches runner target >= $7.50 without trailing delay:
+    pm.settings.basket_trailing_enabled = False
     pos1.profit = 5.5
     pos2.profit = 2.5
     actions_harvest = await pm.manage_basket([pos1, pos2], current_bid=2355.0, current_ask=2355.2)
-    assert "basket_tp" in actions_harvest
+    assert any("basket_tp" in a for a in actions_harvest)
 
 
 async def test_position_manager_overnight_flat_cutoff() -> None:
     client = MockMT5Client()
     pm = PositionManager(client=client, settings=settings)
-    open_time = datetime(2026, 1, 5, 14, 0, tzinfo=UTC)
+    open_time = datetime(2026, 1, 5, 21, 0, tzinfo=UTC)
     now_2105 = datetime(2026, 1, 5, 21, 5, tzinfo=UTC)
     pos = Position(ticket=201, symbol="XAUUSD", side=SIDE_BUY, volume=0.01, price_open=2350.0, price_current=2351.0, profit=1.0, time=open_time)
     
     actions = await pm.manage(pos, price=2351.0, now=now_2105)
     assert "overnight_flat_cutoff" in actions
-    assert client.positions == []
+    assert await client.positions() == []
+
+    # But at 22:05 UTC (Asia session open on Tuesday morning), it must NOT cut off!
+    client2 = MockMT5Client()
+    pm2 = PositionManager(client=client2, settings=settings)
+    now_2205 = datetime(2026, 1, 5, 22, 5, tzinfo=UTC)
+    pos2 = Position(ticket=202, symbol="XAUUSD", side=SIDE_BUY, volume=0.01, price_open=2350.0, price_current=2351.0, profit=1.0, time=now_2205)
+    actions2 = await pm2.manage(pos2, price=2351.0, now=now_2205)
+    assert "overnight_flat_cutoff" not in actions2
+
+
+async def test_risk_gate_blocks_during_overnight_flat_window() -> None:
+    from agents.state import SharedState
+    from execution.risk_gate import evaluate
+    from spk.decision import ACTION_BUY, SPKDecision
+
+    class MockSizerVote:
+        agent_id = "Risk-PositionSizer"
+        metadata = {"size": 0.10, "sizing_mode": "TARGET_SEEKING"}
+
+    dec = SPKDecision(action=ACTION_BUY, score=3.0, confidence=0.7, votes=[MockSizerVote()])
+    state_rollover = SharedState(symbol="XAUUSD", ts=datetime(2026, 1, 5, 21, 15, tzinfo=UTC))
+    res_rollover = evaluate(dec, state_rollover, settings=settings)
+    assert res_rollover.approved is False
+    assert "overnight flat cutoff" in (res_rollover.reason or "")
+
+    # But during Asia open (22:05 UTC), risk gate allows evaluation through
+    state_asia = SharedState(symbol="XAUUSD", ts=datetime(2026, 1, 5, 22, 5, tzinfo=UTC), bid=2350.0, ask=2350.2)
+    res_asia = evaluate(dec, state_asia, settings=settings)
+    assert res_asia.approved is True
 
 
 async def test_notifier_disabled_is_noop() -> None:

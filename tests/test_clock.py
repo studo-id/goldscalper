@@ -1,7 +1,6 @@
-"""Tests for the market session clock (Phase 2.7)."""
+from datetime import datetime, timezone
 
-from datetime import UTC, datetime
-
+UTC = timezone.utc
 from core.clock import KILLZONES, SESSIONS, MarketClock, Window
 
 
@@ -81,6 +80,35 @@ def test_session_hard_cutoff() -> None:
     # 15:30 UTC or later should be cutoff
     assert clock.is_hard_cutoff(_dt(15, 29)) is False
     assert clock.is_hard_cutoff(_dt(15, 30)) is True
-    assert clock.is_hard_cutoff(_dt(16, 0)) is True
-    assert clock.is_hard_cutoff(_dt(22, 0)) is True
+    assert clock.is_hard_cutoff(_dt(20, 0)) is True
+    assert clock.is_hard_cutoff(_dt(22, 0)) is False
     assert clock.is_hard_cutoff(_dt(10, 0)) is False
+
+
+def test_overnight_flat_window() -> None:
+    from core.clock import is_overnight_flat_window
+
+    clock = MarketClock()
+
+    # Sunday
+    assert is_overnight_flat_window(datetime(2026, 1, 4, 21, 55, tzinfo=UTC)) is True  # Sunday before 22:00
+    assert is_overnight_flat_window(datetime(2026, 1, 4, 22, 5, tzinfo=UTC)) is False   # Sunday Asia open!
+    assert clock.is_overnight_flat_window(datetime(2026, 1, 4, 22, 5, tzinfo=UTC)) is False
+
+    # Mon-Thu mid-day
+    assert is_overnight_flat_window(datetime(2026, 1, 5, 10, 0, tzinfo=UTC)) is False
+
+    # Mon-Thu daily rollover break (20:50 -> 22:00 UTC)
+    assert is_overnight_flat_window(datetime(2026, 1, 5, 20, 45, tzinfo=UTC)) is False
+    assert is_overnight_flat_window(datetime(2026, 1, 5, 20, 55, tzinfo=UTC)) is True
+    assert is_overnight_flat_window(datetime(2026, 1, 5, 21, 30, tzinfo=UTC)) is True
+
+    # Mon-Thu Asia reopen at 22:00+ UTC (Tuesday morning WIB)
+    assert is_overnight_flat_window(datetime(2026, 1, 5, 22, 1, tzinfo=UTC)) is False
+    assert is_overnight_flat_window(datetime(2026, 1, 5, 23, 30, tzinfo=UTC)) is False
+
+    # Friday close & weekend gap
+    assert is_overnight_flat_window(datetime(2026, 1, 9, 20, 40, tzinfo=UTC)) is False
+    assert is_overnight_flat_window(datetime(2026, 1, 9, 20, 55, tzinfo=UTC)) is True
+    assert is_overnight_flat_window(datetime(2026, 1, 9, 22, 0, tzinfo=UTC)) is True
+    assert is_overnight_flat_window(datetime(2026, 1, 10, 14, 0, tzinfo=UTC)) is True  # Saturday

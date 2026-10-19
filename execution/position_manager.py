@@ -15,6 +15,7 @@ from agents.state import UTC, utcnow
 from config.logging import get_logger
 from config.settings import Settings
 from config.settings import settings as default_settings
+from core.clock import is_overnight_flat_window
 from core.mt5_connector import MT5Client, Position
 
 log = get_logger("execution.position_manager")
@@ -158,18 +159,17 @@ class PositionManager:
             actions.append("time_stop")
             return actions
 
-        # Institutional Overnight Flat Guard (Close intraday trades before 21:00 UTC rollover/gap)
-        if s.overnight_flat_utc_enabled:
+        # Institutional Overnight Flat Guard (Close intraday trades before rollover/weekend gap)
+        if s.overnight_flat_utc_enabled and is_overnight_flat_window(moment):
             utc_dt = moment.astimezone(UTC) if moment.tzinfo else moment.replace(tzinfo=UTC)
-            if utc_dt.hour >= 21:
-                log.warning(
-                    "OVERNIGHT FLAT CUTOFF: Closing ticket %s at %s UTC to prevent overnight gap risk",
-                    pos.ticket, utc_dt.strftime("%H:%M"),
-                )
-                await self.client.close_position(pos.ticket, price=price)
-                self.untrack(pos.ticket)
-                actions.append("overnight_flat_cutoff")
-                return actions
+            log.warning(
+                "OVERNIGHT FLAT CUTOFF: Closing ticket %s at %s UTC (%s) to prevent rollover/weekend gap risk",
+                pos.ticket, utc_dt.strftime("%H:%M"), utc_dt.strftime("%A"),
+            )
+            await self.client.close_position(pos.ticket, price=price)
+            self.untrack(pos.ticket)
+            actions.append("overnight_flat_cutoff")
+            return actions
 
         # --- THE JUGGLER: Dynamic Anti-Bleeding & In-Flight Reversal Matrix ---
         if s.juggler_enabled:

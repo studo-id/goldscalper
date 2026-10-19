@@ -12,12 +12,14 @@ Deterministic and LLM-free — safe to run in the hot path.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
-from agents.state import SharedState
+from agents.state import UTC, SharedState
 from config.logging import get_logger
 from config.settings import Settings
 from config.settings import settings as default_settings
+from core.clock import is_overnight_flat_window
 from spk.decision import ACTION_BUY, ACTION_HOLD, SPKDecision
 
 log = get_logger("execution.risk_gate")
@@ -75,6 +77,14 @@ def evaluate(
             approved=False,
             reason=f"existing hard veto: {decision.veto_reason or 'blocked'}",
         )
+
+    if s.overnight_flat_utc_enabled:
+        eval_time = getattr(state, "ts", None) or getattr(decision, "created_at", None) or datetime.now(UTC)
+        if is_overnight_flat_window(eval_time):
+            return RiskGateResult(
+                approved=False,
+                reason="overnight flat cutoff active (rollover / weekend gap protection)",
+            )
 
     votes = decision.votes or []
 

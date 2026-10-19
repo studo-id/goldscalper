@@ -35,6 +35,43 @@ Aturan singkat:
 
 ---
 
+## 2026-10-19 — Overnight Rollover & Asia Session Boundary Guard: Eliminating Rapid-Close Churn
+
+**Phase / Area:** Execution Layer, Market Clock & Risk Gate (`core/clock.py`, `execution/position_manager.py`, `execution/risk_gate.py`, `tests/test_clock.py`, `tests/test_execution.py`)
+**Status:** Done
+
+**Yang dikerjakan**
+- **Mengatasi Bug Tutup Instan (0-Second Churn) pada Pembukaan Sesi Asia (Senin Subuh / 22:00-23:59 UTC):**
+  1. **Akar Masalah (Root Cause):**
+     - Pada `execution/position_manager.py`, fitur `overnight_flat_utc_enabled` mengecek `if utc_dt.hour >= 21:` tanpa batasan hari dan tanpa batasan jam buka kembali pasar.
+     - Akibatnya pada jam 22:00 dan 23:00 UTC (05:00-06:59 WIB Senin pagi dan hari biasa saat pasar Gold Exness baru saja buka kembali untuk sesi Asia), setiap posisi yang dibuka langsung ditutup paksa dalam 0-1 detik sebagai `OVERNIGHT FLAT CUTOFF`.
+     - Menyebabkan 75 kali eksekusi open-close instan yang menggerus spread broker rata-rata -$2.82 per trade tanpa harga sempat bergerak.
+  2. **Implementasi `is_overnight_flat_window(dt)` Terpusat:**
+     - Menambahkan fungsi terpusat `is_overnight_flat_window(dt)` di `core/clock.py` yang membedakan:
+       - **Weekend Gap Risk (Jumat):** Jumat pukul >= 20:50 UTC hingga Minggu pukul 22:00 UTC (saat pasar benar-benar libur akhir pekan).
+       - **Daily Rollover Break (Senin-Kamis):** Pukul 20:50 s/d 22:00 UTC (saat pergantian hari dan spread melebar).
+       - **Asia Session Reopen (Minggu-Kamis 22:00+ UTC / 05:00+ WIB):** Ditandai sebagai waktu pasar AKTIF (bukan cutoff).
+  3. **Sinkronisasi Dua Sisi (Entry Gate & Exit Guard):**
+     - Memperbarui `execution/position_manager.py` untuk menggunakan `is_overnight_flat_window(moment)`.
+     - Menambahkan pre-trade filter di `execution/risk_gate.py` agar jika jendela rollover/cutoff sedang aktif, order baru DITOLAK SEJAK AWAL sehingga tidak pernah ada trade yang dibuka lalu langsung ditutup milidetik berikutnya.
+  4. **Kompatibilitas Python 3.10 & 3.11+:**
+     - Menyelaraskan import `UTC` lintas modul dengan fallback `timezone.utc`.
+  5. **Pengujian Unit Menyeluruh:**
+     - Menambahkan 10 assertions di `tests/test_clock.py` dan unit tests baru di `tests/test_execution.py` yang memvalidasi bahwa sesi Asia (22:05 UTC) TIDAK terkena cutoff, dan risk gate menolak entry saat jam rollover 21:15 UTC.
+
+**File tersentuh**
+- `core/clock.py` — Implementasi `is_overnight_flat_window(dt)` dan method di `MarketClock`.
+- `execution/position_manager.py` — Integrasi `is_overnight_flat_window(moment)` untuk flat exit.
+- `execution/risk_gate.py` — Pre-trade reject saat jendela overnight cutoff aktif.
+- `core/market_data.py`, `core/mt5_connector.py` — Kompatibilitas import timezone UTC.
+- `tests/test_clock.py`, `tests/test_execution.py` — Suite pengujian validasi jam sesi dan risk gate.
+- `docs/PROGRESS.md`, `docs/QUANT_FINENG_BIZDEV_SPEC.md` — Dokumentasi kronologis dan spesifikasi operasional rollover.
+
+**Verifikasi**
+- `pytest tests/test_clock.py tests/test_execution.py -v` → 26 passed in 0.17s.
+
+---
+
 ## 2026-10-17 — Portfolio-Aware Net Friction Guard: Eliminating Deadlock Paradox under Juggler Directive
 
 **Phase / Area:** Risk Division, Execution Layer, Settings & BizDev (`agents/divisions/risk/agents.py`, `execution/risk_gate.py`, `config/settings.py`, `tests/test_risk_division.py`)

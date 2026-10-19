@@ -16,7 +16,12 @@ import asyncio
 import random
 import zlib
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
+
+try:
+    from datetime import UTC
+except ImportError:
+    UTC = timezone.utc
 from typing import Any, Protocol
 
 from config.logging import get_logger

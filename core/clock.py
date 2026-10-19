@@ -8,7 +8,12 @@ high-probability windows where scalpers prefer to enter.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime, time
+from datetime import datetime, time, timezone
+
+try:
+    from datetime import UTC
+except ImportError:
+    UTC = timezone.utc  # Python 3.10 compat
 
 
 def _to_utc(dt: datetime) -> datetime:
@@ -113,6 +118,10 @@ class MarketClock:
         t = _to_utc(dt).time()
         return time(15, 30) <= t < time(21, 0)
 
+    def is_overnight_flat_window(self, dt: datetime) -> bool:
+        """True during daily rollover break or weekend close."""
+        return is_overnight_flat_window(dt)
+
     def describe(self, dt: datetime) -> dict[str, object]:
         return {
             "ts": _to_utc(dt).isoformat(),
@@ -123,4 +132,33 @@ class MarketClock:
             "low_liquidity": self.is_low_liquidity(dt),
             "london_open_freeze": self.is_london_open_freeze(dt),
             "hard_cutoff": self.is_hard_cutoff(dt),
+            "overnight_flat_window": self.is_overnight_flat_window(dt),
         }
+
+
+def is_overnight_flat_window(dt: datetime) -> bool:
+    """True during daily rollover break or weekend close when intraday positions must be flat.
+
+    Rollover/flat cutoff rules for Gold (XAUUSD):
+    1. Weekend gap risk: Friday 20:50 UTC onwards through Sunday 22:00 UTC market open.
+    2. Mon-Thu daily rollover break: 20:50 UTC to 22:00 UTC (spread explosion / daily settlement break).
+    Once 22:00 UTC arrives on Sun-Thu, market is active for Asia session (NOT cutoff).
+    """
+    d = _to_utc(dt)
+    w = d.weekday()
+    h = d.hour
+    m = d.minute
+
+    # Friday close into weekend: Friday >= 20:50 UTC through Sunday < 22:00 UTC
+    if w == 4 and (h > 20 or (h == 20 and m >= 50)):
+        return True
+    if w == 5:  # Saturday
+        return True
+    if w == 6 and h < 22:  # Sunday before 22:00 UTC
+        return True
+
+    # Mon-Thu daily rollover break: between 20:50 and 22:00 UTC
+    if w in (0, 1, 2, 3) and (h == 21 or (h == 20 and m >= 50)):
+        return True
+
+    return False
