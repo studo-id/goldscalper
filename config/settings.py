@@ -133,6 +133,7 @@ class Settings(BaseSettings):
 
     # --- Multi-Timeframe Watchdog (Satpam Bertingkat M1, M5, M15) ---
     watchdog_enabled: bool = True
+    watchdog_min_hold_seconds: int = 60         # 1 full M1 candle (60s) breathing room before early cut
     watchdog_time_extension_seconds: int = 300  # Up to +5 mins extension if M5/HTF supporting
     watchdog_early_invalidation_enabled: bool = True
     watchdog_early_loss_ratio: float = 0.40     # Cut loss early at 40% of clamp if M1+M5 adverse

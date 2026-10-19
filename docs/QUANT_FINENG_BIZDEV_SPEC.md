@@ -94,8 +94,13 @@ $$\text{Calculated Lot} = \text{Clamp}\left(\frac{\text{Remaining USD}}{\text{Ex
   - Saat durasi trade mencapai `max_hold_seconds`, sistem tidak langsung memotong buta.
   - Jika Satpam M5 dan HTF melapor bahwa struktur pasar masih sehat mendukung posisi (`SUPPORTING`), Juggler memberikan izin perpanjangan waktu (*Dynamic Time Extension* hingga +300 detik) untuk memberi ruang terbentuknya reversal menuju Take-Profit.
   - Jika Satpam melapor `NEUTRAL` atau `OPPOSING`, posisi langsung ditutup secara disiplin (`time_stop`).
-* **Satpam M1/M5 Early Invalidation Cut (Cut Loss Dini Cerdas):**
-  - Jika posisi dalam kondisi floating minus dan Satpam M1 serta M5 mendeteksi konfirmasi reversal yang berlawanan (`invalidation_alert`), bot langsung melakukan cut loss dini pada batas terukur (~$6-$8 / 40% clamp), tanpa membiarkan floating minus drifting sampai menjemput SL fisik penuh di MT5 (-$23.72).
+* **Phase 0: M1 Candle Formation Grace Period (Nafas 60 Detik Pembentukan Candle):**
+  - M1 memerlukan durasi penuh 60 detik untuk membentuk sebuah batang candle secara utuh (open, high, low, close).
+  - Untuk mencegah posisi terpotong prematur oleh sumbu/ekor candle M1 palsu (*intra-candle noise/wick*), Juggler memberikan *Grace Period* minimum 60 detik (`watchdog_min_hold_seconds: 60`).
+  - Selama `held < 60s`, cut-loss dini dilarang aktif KECUALI terjadi lonjakan ekstrem (*catastrophic gap* $> 1.6\times$ clamp).
+  - Sisi Take Profit (TP) **TETAP INSTAN / BEBAS** dieksekusi dalam hitungan detik (< 60s) saat target/momentum tercapai.
+* **Satpam M1/M5 Early Invalidation Cut (Cut Loss Dini Cerdas setelah Candle M1 Close):**
+  - Jika posisi dalam kondisi floating minus, telah berjalan $\ge 60$ detik (`held >= watchdog_min_hold_seconds`), dan Satpam M1 serta M5 mendeteksi konfirmasi reversal yang berlawanan (`invalidation_alert`), bot langsung melakukan cut loss dini pada batas terukur (~$6-$8 / 40% clamp), tanpa membiarkan floating minus drifting sampai menjemput SL fisik penuh di MT5 (-$23.72).
 * **Fast Break-Even Lock (BEP+ Zero-Risk Mode):**
   - Begitu posisi bergerak untung $\ge 12$ pips (atau profit $\ge \$1.80$), Stop Loss secara otomatis digeser ke `Entry + 0.10` (untuk BUY) atau `Entry - 0.10` (untuk SELL). Posisi yang sudah sempat hijau terkunci bebas risiko (*risk-free*) dan dilarang keras kembali menjadi merah.
 * **Dynamic Bleeding Clamp (Melirik Live Average Win):**
@@ -150,7 +155,7 @@ $$\text{Friction Ratio} = \frac{\text{Total Friction Cost}}{\text{Gross Profit G
 * **Logika Keputusan Reversal:**
   - **`HTF_SUPPORTING` (Hold for Reversal):** Jika H4, H1, M30, M15 tetap searah dengan posisi, floating minus di M1 dinilai sebagai *minor pullback/retest*. Watchdog memberikan toleransi nafas hingga batas normal clamp untuk menunggu pembalikan arah kembali ke TP.
   - **`HTF_OPPOSING` (Early Cutloss — Do NOT Hope!):** Jika H1/M15/H4 telah mematahkan struktur berlawanan dengan posisi dan floating loss mencapai $\ge 65\%$ clamp, posisi **DIPOTONG SEGERA** tanpa menunggu tersentuh full SL.
-  - **Physical Noise Floor:** Menjamin batas cutloss pada lot berapapun selalu memiliki jarak nafas $\ge 16$ pips ($\$1.60$) pada Emas, dilindungi oleh *Grace Period* 15 detik awal agar tidak tercekik oleh spread broker.
+  - **Physical Noise Floor & M1 Candle Grace Period:** Menjamin batas cutloss pada lot berapapun selalu memiliki jarak nafas $\ge 16$ pips ($\$1.60$) pada Emas, dilindungi oleh *M1 Candle Formation Grace Period* minimum 60 detik (`watchdog_min_hold_seconds: 60`) agar tidak tercekik oleh spread broker maupun sumbu (*wick*) candle M1 yang belum terbentuk utuh (*close*).
 
 ### 4.2 Setup Grading & Risk-Free Pyramiding (Scale-In on Accurate Trends)
 

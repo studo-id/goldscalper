@@ -301,14 +301,23 @@ async def test_watchdog_time_extension_and_invalidation_cut() -> None:
     actions = await pm.manage(pos, price=2349.5, now=now, context={"decision": dec_supp})
     assert "time_stop" not in actions  # Extended!
 
-    # 2. When M1 and M5 both oppose our position -> Early Invalidation Cut!
+    # 2. When M1 and M5 both oppose our position:
     adverse_signals = [
         AgentSignal(agent_id="TF-M1-Sniper", division="timeframe", vote=-1, confidence=0.8),
         AgentSignal(agent_id="TF-M5-Inspector", division="timeframe", vote=-1, confidence=0.7),
     ]
     dec_adv = SPKDecision(action=ACTION_BUY, score=-3.0, confidence=0.8, votes=adverse_signals)
-    pm._states[pos.ticket].opened_at = now - timedelta(seconds=60)  # Held 60s
     pos.profit = -7.00  # floating loss exceeding early threshold ($7.00 >= $6.40)
+
+    # 2a. Under 60s (e.g. 35s): Intra-candle M1 wick grace period PROTECTS the position!
+    pm._states[pos.ticket].opened_at = now - timedelta(seconds=35)
+    actions_wick = await pm.manage(pos, price=2349.5, now=now, context={"decision": dec_adv})
+    assert "watchdog_early_invalidation_cut" not in actions_wick
+    assert len(await client.positions("XAUUSD")) == 1
+
+    # 2b. Once 1 full M1 candle closes (held >= 60s, e.g. 65s): Early Invalidation Cut triggers!
+    pm._states[pos.ticket].opened_at = now - timedelta(seconds=65)
+    pos.profit = -7.00
     actions_cut = await pm.manage(pos, price=2349.5, now=now, context={"decision": dec_adv})
     assert "watchdog_early_invalidation_cut" in actions_cut
     assert await client.positions("XAUUSD") == []

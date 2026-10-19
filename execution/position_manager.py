@@ -257,15 +257,16 @@ class PositionManager:
             base_clamp = max(s.hard_loss_clamp_usd, round(live_avg_win * 1.25, 2) if live_avg_win >= 2.0 else s.hard_loss_clamp_usd)
             effective_clamp_usd = max(min_breath_usd, base_clamp)
 
-            # 2. Phase 0: Noise Absorption Grace Period (0 - 15s)
-            # Never allow 2-second spread noise to cut trade unless catastrophic gap (>1.6x clamp)
-            if held < 15 and current_loss > -(effective_clamp_usd * 1.6):
-                pass  # Grace period: absorb spread friction
+            # 2. Phase 0: Noise & M1 Candle Formation Grace Period (0 - 60s)
+            # Never cut on unclosed M1 candle wicks (< 60s) unless catastrophic gap (>1.6x clamp)
+            min_hold = getattr(s, "watchdog_min_hold_seconds", 60)
+            if held < min_hold and current_loss > -(effective_clamp_usd * 1.6):
+                pass  # Grace period: allow 1 full M1 candle (60s) to form cleanly
 
-            # 3. Phase 1: Satpam M1/M5 Early Invalidation Cut (Cut Loss Dini, Tidak Menunggu Kena SL Penuh!)
+            # 3. Phase 1: Satpam M1/M5 Early Invalidation Cut (Cut Loss Dini setelah 1 Candle M1 Close)
             elif (
                 s.watchdog_early_invalidation_enabled
-                and held >= 15
+                and held >= min_hold
                 and current_loss <= -max(4.0, round(effective_clamp_usd * s.watchdog_early_loss_ratio, 2))
                 and watchdogs["invalidation_alert"]
             ):
@@ -287,7 +288,7 @@ class PositionManager:
             # 4. Phase 2: HTF Trend Breakdown (Early Cut — Do NOT Hope!)
             # If floating loss >= 65% of clamp AND Higher Timeframes (H4/H1/M30/M15) are actively opposing us:
             elif (
-                held >= 15
+                held >= min_hold
                 and current_loss <= -(effective_clamp_usd * 0.65)
                 and htf_bias["verdict"] == "HTF_OPPOSING"
             ):

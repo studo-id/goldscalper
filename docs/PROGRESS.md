@@ -35,6 +35,42 @@ Aturan singkat:
 
 ---
 
+## 2026-10-19 — M1 Candle Formation Grace Period (60s Minimum Hold for Early Cut)
+
+**Phase / Area:** Execution Layer, Risk & Exit Protection (`execution/position_manager.py`, `config/settings.py`, `.env.example`, `tests/test_execution.py`)
+**Status:** Done
+
+**Yang dikerjakan**
+- **Mengeliminasi Cut-Loss Prematur akibat Sumbu/Ekor Candle M1 (Intra-Candle Noise):**
+  1. **Akar Masalah (Root Cause):**
+     - Evaluasi live trading pasca-deployment Satpam Bertingkat menunjukkan rata-rata loss berhasil dijepit turun dari -$16.38 s/d -$23.70 menjadi -$6.91.
+     - Namun, terdapat beberapa posisi yang terkena cut-loss dini di bawah 1 menit (< 60 detik) saat candle M1 masih berjalan di detik 16–45. Sumbu/ekor (*wick*) fluktuasi intra-candle memicu `invalidation_alert` sebelum candle M1 sempat terbentuk utuh (*close*).
+  2. **Implementasi M1 Candle Formation Grace Period (60 Detik):**
+     - Menambahkan konfigurasi `watchdog_min_hold_seconds: int = 60` di `config/settings.py` dan `.env.example`.
+     - Memperbarui `execution/position_manager.py` (Phase 0 & Phase 1): Selama `held < min_hold` (60 detik), sistem dilarang keras melakukan cut-loss dini kecuali terjadi pergerakan ekstrem (*catastrophic gap* $> 1.6\times$ clamp limit).
+     - **Take Profit (TP) Tetap Kilat:** Logika Take Profit dan panen momentum sama sekali tidak dibatasi oleh durasi 60 detik; TP kilat tetap dapat dieksekusi seketika (< 60s) saat target/momentum tercapai.
+     - **Cooldown Tetap Utuh:** Jeda cooldown 60 detik antar-trade tetap dipertahankan tanpa gangguan.
+  3. **Unit Testing & Verifikasi:**
+     - Memperbarui unit test `test_watchdog_time_extension_and_invalidation_cut` di `tests/test_execution.py` untuk menguji:
+       - Skenario 2a: Pada detik 35 (< 60s), posisi dilindungi oleh Grace Period dan tidak ditutup.
+       - Skenario 2b: Setelah 1 candle M1 close penuh (detik 65 $\ge 60$s), posisi yang terbukti invalid langsung di-cutloss dini secara disiplin.
+
+**File tersentuh**
+- `config/settings.py` — Menambahkan parameter `watchdog_min_hold_seconds: int = 60`.
+- `.env.example` — Menambahkan environment variable `WATCHDOG_MIN_HOLD_SECONDS=60`.
+- `execution/position_manager.py` — Implementasi Phase 0 Grace Period 60s untuk candle formation sebelum Satpam M1/M5 cut-loss dini.
+- `tests/test_execution.py` — Verifikasi 2a (grace period protection) dan 2b (post-close invalidation cut).
+- `docs/QUANT_FINENG_BIZDEV_SPEC.md` — Sinkronisasi spesifikasi Phase 0 Grace Period dan Noise Floor.
+
+**Verifikasi**
+- `pytest tests/test_execution.py tests/test_clock.py` → 28 passed in 0.21s.
+
+**Catatan / Next**
+- Deploy file ke production server (`studo@100.114.150.48`) dan restart container `gs-bot`.
+- Pantau metrik eksekusi live trade pada sesi pasar New York.
+
+---
+
 ## 2026-10-19 — Multi-Timeframe Watchdog (Satpam Bertingkat M1, M5, M15) & Fast Break-Even Lock (BEP+)
 
 **Phase / Area:** Execution Layer, Risk & Exit Architecture (`execution/position_manager.py`, `config/settings.py`, `tests/test_execution.py`, `.env.example`)
