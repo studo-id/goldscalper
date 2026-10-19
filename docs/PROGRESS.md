@@ -35,6 +35,39 @@ Aturan singkat:
 
 ---
 
+## 2026-10-20 — SPK Veto Arbitration: Demotion of HTF Macro Directional Vetoes to Soft Penalty
+
+**Phase / Area:** SPK Veto Arbitration Engine (`spk/veto.py`, `tests/test_spk_veto.py`)
+**Status:** Done
+
+**Yang dikerjakan**
+- **Menghilangkan Penyanderaan Scalper M1 oleh Timeframe Besar H1/D1:**
+  1. **Investigasi Tabrakan Antar-Agen:**
+     - Ditemukan bukti nyata pada telemetri live (jam 03:02 WIB) di mana `TF-H1-Regime` menerbitkan `VETO_SELL` dengan alasan harga berada di 20% area bawah rentang 24 jam (`h1_range`). Akibatnya, sinyal SELL scalper M1 (skor -4.955) terblokir secara Hard Veto selama berjam-jam walau ada setup swing 20-pip yang valid.
+  2. **Penurunan Kasta Veto HTF (H1, H4, D1) Menjadi Soft Penalty:**
+     - Mengubah aturan evaluasi di `spk/veto.py`: Veto arah dari agen divisi `timeframe` (`TF-H1-Regime`, `TF-H4-Bias`, `TF-D1-Macro`) **TIDAK LAGI berstatus Hard Veto pemblokir total**.
+     - Veto HTF diturunkan (*de-escalated*) menjadi **Soft Confidence Penalty (-0.30)**.
+     - Jika setup scalper M1 didukung kuat oleh 30+ agen lain (volume, microstructure, liquidity, orderflow), trade tetap dapat dieksekusi.
+     - Jika sinyal scalper marjinal/lemah, penalti -0.30 akan menurunkan konfidensi di bawah threshold sehingga trade otomatis gugur dengan sehat.
+  3. **Penegasan Hak Hard Veto Murni:**
+     - Hak Hard Veto kini secara tegas hanya dipegang oleh:
+       - **Risk Guard:** `daily_loss_exceeded`, `weekly_loss_exceeded`, `daily_profit_locked`, `division == 'risk'`.
+       - **Market Blackout & Disconnect:** `is_news_blackout`, `tick_feed_stale`, `mt5_disconnected`.
+       - **Tactical Barrier:** `is_sr_barrier` (M1 Support/Resistance) dan `VETO_ALL` (M1 Mid Dead Zone Chop).
+  4. **Pengujian Unit:**
+     - Penambahan unit test `test_htf_macro_veto_is_soft_penalty_not_hard_block` di `tests/test_spk_veto.py`.
+     - 54/54 unit tests lulus (100%).
+
+**File tersentuh**
+- `spk/veto.py` — Pengalihan agen divisi timeframe dari hard veto ke soft confidence penalty (-0.30).
+- `tests/test_spk_veto.py` — Penambahan test HTF soft penalty, pembaruan helper `_veto_sig`.
+- `docs/PROGRESS.md` — Dokumentasi kronologis worklog.
+
+**Verifikasi**
+- `python -m pytest tests/test_spk_veto.py tests/test_technical_division.py tests/test_runtime.py` → 54 passed in 0.48s.
+
+---
+
 ## 2026-10-20 — Scalper Radar Inactivity Watchdog & Veto Deadlock Diagnostics
 
 **Phase / Area:** Runtime Telemetry & Market Inactivity Intelligence (`runtime.py`, `config/settings.py`, `tests/test_runtime.py`)

@@ -11,14 +11,25 @@ from spk.decision import ACTION_BUY, ACTION_SELL
 from spk.veto import VetoParams, evaluate
 
 
-def _veto_sig(flag: str, agent_id: str = "TF-H1-Regime") -> AgentSignal:
-    return AgentSignal(agent_id=agent_id, division="timeframe", vote=0, confidence=1.0, veto=flag)
+def _veto_sig(flag: str, agent_id: str = "Risk-DrawdownGuard", division: str | None = None) -> AgentSignal:
+    div = division or ("timeframe" if agent_id.startswith("TF-") else "risk")
+    return AgentSignal(agent_id=agent_id, division=div, vote=0, confidence=1.0, veto=flag)
 
 
 def test_hard_veto_blocks_matching_direction() -> None:
     result = evaluate([_veto_sig(VETO_BUY)], SharedState(), ACTION_BUY)
     assert result.hard is True
     assert "blocked" in (result.reason or "")
+
+
+def test_htf_macro_veto_is_soft_penalty_not_hard_block() -> None:
+    # H1/D1 macro timeframe agent issues directional veto:
+    # Must NOT hard-block ultra-fast M1 scalper; instead softens to confidence penalty!
+    h1_sig = AgentSignal(agent_id="TF-H1-Regime", division="timeframe", vote=0, confidence=0.80, veto=VETO_SELL)
+    result = evaluate([h1_sig], SharedState(), ACTION_SELL)
+    assert result.hard is False
+    assert result.confidence_delta < 0.0
+    assert any("softened" in n.lower() for n in result.notes)
 
 
 def test_veto_all_blocks_both_buy_and_sell() -> None:

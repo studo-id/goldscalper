@@ -121,18 +121,30 @@ def evaluate(
             is_tf_agent = (sig.division == "timeframe" or sig.agent_id.startswith("TF-"))
             is_analysis_agent = sig.division in ("structure", "technical", "timeframe", "fundamental")
 
-            # During sideways/ping-pong conditions, HTF deadlock, or for analysis conflicts:
+            # 1. During sideways/ping-pong conditions, HTF deadlock, or for analysis conflicts:
             # demote directional vetoes to soft confidence penalties so 37-agent consensus can scalp.
             if is_analysis_agent and (htf_deadlock or is_ping_pong or sideways_mode):
                 result.confidence_delta -= p.htf_conflict_penalty
                 result.notes.append(
                     f"Analysis veto demoted to soft penalty for sideways/ping-pong ({sig.agent_id}:{sig.veto})"
                 )
+                continue
+
+            # 2. HTF Macro Directional De-escalation (H1, H4, D1, etc.):
+            # For ultra-fast M1 scalping, macro HTF directional bias must NEVER hard-paralyze the bot!
+            # Instead, it applies a calibrated confidence penalty (-0.30) so high-conviction scalps can proceed.
+            if is_tf_agent:
+                result.confidence_delta -= p.htf_conflict_penalty
+                result.notes.append(
+                    f"HTF macro veto softened to confidence penalty ({sig.agent_id}:{sig.veto})"
+                )
+                continue
             elif is_analysis_agent and sig.division in ("structure", "technical"):
                 result.confidence_delta -= 0.20
                 result.notes.append(
                     f"Structural veto softened to confidence penalty ({sig.agent_id}:{sig.veto})"
                 )
+                continue
             else:
                 return VetoResult(
                     hard=True,
