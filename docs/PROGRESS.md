@@ -35,6 +35,29 @@ Aturan singkat:
 
 ---
 
+## 2026-10-20 — Penegakan HTF Supporting Reversal Shield & Penyelarasan Rescue Layer
+
+**Phase / Area:** Execution Layer & Risk Architecture (`execution/position_manager.py`, `tests/test_execution.py`)
+**Status:** Done
+
+**Yang dikerjakan**
+- **Mengintegrasikan HTF Reversal Shield pada Phase 3 Dynamic Clamp:**
+  - Sebelumnya, pada detik ke-62 (setelah 60s M1 close), `juggler_dynamic_clamp` langsung memotong posisi jika loss $\le -\$7.00$ secara buta, tanpa mempedulikan bahwa status pasar adalah `HTF=SUPPORTING` (arah tren besar H4, H1, M30, M15 sangat mendukung). Akibatnya, pullback tipis 8.9 pips pada lot 0.08 dipotong rugi -$7.16, padahal 1 menit kemudian harga emas langsung terjun bebas ke target profit TP.
+  - Menambahkan perlindungan **`HTF_SUPPORTING` Reversal Shield**: Jika seluruh timeframe makro searah mendukung posisi, bot dilarang memotong pada fluktuasi pullback normal. Diberikan toleransi pembalikan arah (*Reversal Buffer*) hingga 22 pips ($-\$14.00–\$17.50$), memberi ruang bagi tren besar untuk melanjutkan momentum atau bagi Rescue Layer 2 ($\ge 20$ pips) untuk bekerja memulihkan posisi.
+- **Penyelarasan Phase 4 Duration Stagnation Cut:**
+  - Menambahkan syarat `htf_bias["verdict"] != "HTF_SUPPORTING"` pada pemotongan durasi 90 detik, mencegah posisi yang tren besarnya masih sehat terpotong prematur oleh noise minor M1.
+
+**File tersentuh**
+- `execution/position_manager.py` — Implementasi HTF Reversal Shield pada Phase 3 clamp dan proteksi tren pada Phase 4 duration cut.
+- `docs/PROGRESS.md` — Pencatatan worklog kronologis.
+
+**Verifikasi**
+- `python -m pytest tests/test_execution.py ...` → 115 passed in 0.47s.
+- `scp execution/position_manager.py studo@100.114.150.48:...` → File tersinkronisasi ke server VPS.
+- `docker restart gs-bot` → Container aktif dan live trading normal.
+
+---
+
 ## 2026-10-20 — Penyelarasan M1 Candle Formation Grace Period (60s) & Multi-Entry Shield
 
 **Phase / Area:** Execution Layer, Risk & Exit Architecture (`execution/position_manager.py`, `tests/test_execution.py`)

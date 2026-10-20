@@ -327,28 +327,38 @@ class PositionManager:
                 actions.append("juggler_htf_breakdown_cut")
                 return actions
 
-            # 5. Phase 3: Dynamic Hard Clamp (Strict Capital Protection - NO UNBOUNDED RISK)
+            # 5. Phase 3: Dynamic Hard Clamp & HTF Reversal Shield
             elif s.hard_loss_clamp_enabled and held >= min_hold and current_loss <= -abs(effective_clamp_usd):
-                log.warning(
-                    "JUGGLER DYNAMIC CLAMP: Cutting ticket %s (%s %.2f, loss=%.2f <= -$%.2f [HTF=%s, avg_win $%.2f])",
-                    pos.ticket,
-                    pos.side,
-                    pos.volume,
-                    current_loss,
-                    effective_clamp_usd,
-                    htf_bias["verdict"],
-                    live_avg_win,
-                )
-                await self.client.close_position(pos.ticket, price=price)
-                self.untrack(pos.ticket)
-                actions.append("juggler_dynamic_clamp")
-                return actions
+                # When HTF (H4/H1/M30/M15) strongly SUPPORTS the trade, a 9-18 pip drawdown is a minor pullback!
+                # Do NOT cut into a supporting trend — hold for reversal and allow Rescue Layer 2 to activate!
+                htf_reversal_clamp = max(14.0, round(effective_clamp_usd * 1.85, 2), round(pos.volume * 2.20 * 100.0, 2))
+                if htf_bias["verdict"] == "HTF_SUPPORTING" and current_loss > -htf_reversal_clamp:
+                    # Allow trend continuation / reversal room while HTF structure is healthy
+                    pass
+                else:
+                    clamp_reason = "HTF_EXHAUSTED" if htf_bias["verdict"] == "HTF_SUPPORTING" else htf_bias["verdict"]
+                    log.warning(
+                        "JUGGLER DYNAMIC CLAMP: Cutting ticket %s (%s %.2f, loss=%.2f <= -$%.2f [HTF=%s (%s), avg_win $%.2f])",
+                        pos.ticket,
+                        pos.side,
+                        pos.volume,
+                        current_loss,
+                        effective_clamp_usd if htf_bias["verdict"] != "HTF_SUPPORTING" else htf_reversal_clamp,
+                        htf_bias["verdict"],
+                        clamp_reason,
+                        live_avg_win,
+                    )
+                    await self.client.close_position(pos.ticket, price=price)
+                    self.untrack(pos.ticket)
+                    actions.append("juggler_dynamic_clamp")
+                    return actions
 
             # 6. Phase 4: Duration Stagnation Cut (90s - 150s with no reversal momentum)
             elif state.opened_at is not None and held >= 90:
                 duration_loss_limit = max(2.50, round(effective_clamp_usd * 0.60, 2))
                 if (
                     current_loss <= -duration_loss_limit
+                    and htf_bias["verdict"] != "HTF_SUPPORTING"
                     and (watchdogs["m1"]["verdict"] == "OPPOSING" or watchdogs["m5"]["verdict"] == "OPPOSING")
                 ):
                     log.info(
