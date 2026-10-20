@@ -35,6 +35,29 @@ Aturan singkat:
 
 ---
 
+## 2026-10-20 — Real-Time Streaming Elapsed Timer pada Tabel Open Positions (Tanpa Kata 'ago')
+
+**Phase / Area:** Frontend UI (`frontend/js/components.js`, `frontend/js/agents.js`, `frontend/js/app.js`, `frontend/index.html`)
+**Status:** Done & Deployed to VPS
+
+**Yang dikerjakan**
+- **Refaktor Kolom OPENED Open Positions Menjadi Streaming:**
+  - Sebelumnya menggunakan `relTime()` yang statis (`1m ago`, `2m ago`) dan hanya berubah setiap 60 detik sekali.
+  - Mengimplementasikan `formatStreamingDuration(ts)` di `frontend/js/components.js` yang menghitung durasi live tanpa kata "ago":
+    - Detik awal: `0s`, `1s`, `2s`, ... `59s`.
+    - Menit & detik: `1m 00s`, `1m 01s`, ... `2m 45s`.
+    - Jam: `1h 05m 12s`.
+  - Menambahkan attribute `data-opened="${p.opened_at}"` dan tooltip waktu pembukaan presisi `title="Opened at ... WIB"` di tabel open positions.
+- **Dedicated 1-Second Interval Stopwatch di Cockpit:**
+  - Mengintegrasikan `_startPositionTimer()` dan `_stopPositionTimer()` di `frontend/js/agents.js` yang berdetak setiap 1.000 ms secara realtime dan mulus tanpa flicker DOM.
+  - Sinkronisasi instan saat pesan websocket telemetry tiba via `renderTelemetry()`.
+  - Bump cache-busting query script version `?v=20261020_01` di `frontend/index.html` dan `frontend/js/app.js`.
+- **Verifikasi & Deployment:**
+  - File frontend dideploy ke server VPS via SCP (`studo@100.114.150.48:/home/studo/apps/goldscalper/frontend/`).
+  - Terverifikasi serving live dari endpoint HTTP VPS.
+
+---
+
 ## 2026-10-20 — Resolusi 4 Bentrok Logika Kode Penyebab Tingginya Loss & Kalibrasi Sizing Defensif
 
 **Phase / Area:** Runtime (`runtime.py`), Risk Division (`agents/divisions/risk/agents.py`), Position Manager (`execution/position_manager.py`), Config (`.env.example`)
