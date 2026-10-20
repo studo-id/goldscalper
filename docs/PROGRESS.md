@@ -35,6 +35,30 @@ Aturan singkat:
 
 ---
 
+## 2026-10-20 — Currency Filtering for News Blackout (USD Specific for XAUUSD)
+
+**Phase / Area:** Core Services (`core/calendar_service.py`, `tests/test_calendar_service.py`)
+**Status:** Done
+
+**Yang dikerjakan**
+- Memperbaiki pengecekan blackout pada `EconomicCalendarService.check_blackout()`:
+  - Menambahkan parameter `target_currencies: tuple[str, ...] = ("USD", "US")`.
+  - Berita rilis dari luar Amerika Serikat (seperti `UK Labour Market Report`, `Australia CPI`, `Bank of Canada`) yang berlabel `GLOBAL` / non-USD tidak lagi memicu Hard Veto blackout di instrumen `XAUUSDm`.
+  - Hanya berita High-Impact yang langsung mempengaruhi US Dollar (FOMC, NFP, US CPI, GDP AS, PCE, Retail Sales AS) yang memicu News Blackout.
+- Menambahkan test suite `tests/test_calendar_service.py` untuk memvalidasi pemfilteran mata uang blackout (100% passed).
+
+**File tersentuh**
+- `core/calendar_service.py` — filter mata uang pada blackout check
+- `tests/test_calendar_service.py` — unit test pemfilteran berita USD vs non-USD
+
+**Verifikasi**
+- `pytest tests/test_calendar_service.py tests/test_fundamental_division.py` → 14 passed in 0.18s
+
+**Catatan / Next**
+- Deploy file ke server VPS `100.114.150.48` dan restart container `gs-bot`.
+
+---
+
 ## 2026-10-20 — 4-Stage Market Lifecycle & Regime Engine (Adaptive Trend Riding & Exhaustion Guard)
 
 **Phase / Area:** Core & Technical Division (`core/market_regime.py`, `agents/divisions/technical/agents.py`, `spk/veto.py`, `runtime.py`)

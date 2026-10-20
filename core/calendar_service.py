@@ -226,7 +226,9 @@ class EconomicCalendarService:
                 log.warning("failed to refresh economic calendar (backing off %ds): %s", int(self.retry_cooldown_s), exc)
 
     def check_blackout(
-        self, now_dt: datetime | None = None
+        self,
+        now_dt: datetime | None = None,
+        target_currencies: tuple[str, ...] = ("USD", "US"),
     ) -> tuple[bool, dict[str, Any] | None]:
         """Check if current time falls within pre/post blackout window of High-Impact news."""
         now = (now_dt or datetime.now(UTC)).astimezone(UTC)
@@ -237,6 +239,10 @@ class EconomicCalendarService:
             if not e.is_high_impact:
                 continue
 
+            # Gold (XAUUSD) quote currency is USD — only blackout on USD high-impact events
+            if target_currencies and e.country.upper() not in target_currencies:
+                continue
+
             start_blackout = e.time - pre_delta
             end_blackout = e.time + post_delta
 
@@ -245,6 +251,7 @@ class EconomicCalendarService:
                 phase = "BEFORE" if diff_m >= 0 else "AFTER"
                 return True, {
                     "title": e.title,
+                    "country": e.country,
                     "impact": e.impact,
                     "event_time": e.time.isoformat(),
                     "minutes_to_event": diff_m,
