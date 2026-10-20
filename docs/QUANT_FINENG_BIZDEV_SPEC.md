@@ -97,28 +97,25 @@ $$\text{Calculated Lot} = \text{Clamp}\left(\frac{\text{Remaining USD}}{\text{Ex
 * **Phase 0: M1 Candle Formation Grace Period (Nafas 60 Detik Pembentukan Candle):**
   - M1 memerlukan durasi penuh 60 detik untuk membentuk sebuah batang candle secara utuh (open, high, low, close).
   - Untuk mencegah posisi terpotong prematur oleh sumbu/ekor candle M1 palsu (*intra-candle noise/wick*), Juggler memberikan *Grace Period* minimum 60 detik (`watchdog_min_hold_seconds: 60`).
-  - Selama `held < 60s`, cut-loss dini dilarang aktif KECUALI terjadi lonjakan ekstrem (*catastrophic gap* $> 1.6\times$ clamp).
+  - Selama `held < 60s`, cut-loss dini dilarang aktif KECUALI terjadi lonjakan bencana ekstrim riil (*catastrophic gap* $\ge 45-50$ pips / $\ge \$35-\$36$ pada lot 0.08). Fluktuasi normal lilin 15–25 pips dilindungi penuh agar tidak memotong prematur dan memberi ruang bagi Layer 2 Rescue untuk beroperasi jika diperlukan.
   - Sisi Take Profit (TP) **TETAP INSTAN / BEBAS** dieksekusi dalam hitungan detik (< 60s) saat target/momentum tercapai.
 * **Satpam M1/M5 Dual Invalidation Cut & M5 Pattern Reversal Hold (Durasi $\ge 60$ Detik):**
   - **M5 Pattern Reversal Hold:** Jika durasi berjalan $\ge 60$ detik dan M1 berlawanan arah, namun Satpam M5 masih **`SUPPORTING`** (struktur swing M5 masih sehat), bot **DILARANG MEMOTONG SEPIHAK**. Posisi wajib ditahan (*Hold for M5 Reversal*) untuk memberikan ruang bagi pola candle M5 menyelesaikan pantulan menuju Take Profit.
   - **Dual Invalidation Cut:** Posisi HANYA dipotong dini jika **Satpam M1 dan Satpam M5 KEDUANYA KOMPAK `OPPOSING`** (terjadi konfirmasi *Break of Structure* / CHoCH di M5), memotong rugi di ambang batas aman (~$6-$8 / 40% clamp) sebelum menjemput full SL MT5.
+* **Phase 3: Dynamic Hard Clamp & HTF Reversal Shield:**
+  - Ambang batas cut loss dinamis standar: $\text{Base Clamp} = \max(\$7.00, \text{Live Avg Win} \times 1.1)$, dibatasi plafon ketat $1.35\times$ hard clamp (max $8.50 - $9.50).
+  - **HTF Reversal Shield:** Jika tren besar (H4, H1, M30, M15) solid mendukung arah posisi (`SUPPORTING`), tarikan napas / pullback 10–18 pips dinilai sebagai koreksi wajar. Toleransi kerugian diperlebar menjadi $17.60 (22 pips pada lot 0.08) untuk mencegah pemotongan posisi searah tren besar dan memberi ruang bagi pembalikan arah menuju Take Profit.
 * **Fast Break-Even Lock (BEP+ Zero-Risk Mode):**
-  - Begitu posisi bergerak untung $\ge 12$ pips (atau profit $\ge \$1.80$), Stop Loss secara otomatis digeser ke `Entry + 0.10` (untuk BUY) atau `Entry - 0.10` (untuk SELL). Posisi yang sudah sempat hijau terkunci bebas risiko (*risk-free*) dan dilarang keras kembali menjadi merah.
-* **Dynamic Bleeding Clamp (Melirik Live Average Win):**
-  - Alih-alih batas loss statis kaku, Juggler mengunci batas rugi maksimal per tiket secara adaptif:
-    $$\text{Max Loss Limit} = 1.1 \times \text{Live Average Win Harian}$$
-  - Jika live average win hari ini `$7.31` (atau `$5.49`), maka hard clamp dipasang otomatis di `-$8.04` (atau `-$6.04`). Posisi minus dipotong seketika tanpa kompromi, menghentikan pendarahan asimetris.
-* **Duration-Tightened Cutloss (Waktu Berjalan 90s - 150s):**
-  - Jika posisi minus telah berjalan > 90 detik tanpa adanya tanda pantulan (*reversal wick* M1), toleransi rugi dipangkas ke 60% clamp limit dan di-cutloss. Scalper tidak boleh membiarkan posisi minus menggantung menjadi trade harian.
-* **Target-Proximity Take Profit (Melirik Sisa Target Harian):**
-  - Jika floating profit posisi saat ini telah mencukupi $\ge 35\%$ dari sisa target harian akun, Juggler langsung mengeksekusi Take Profit seketika untuk mengamankan kemenangan hari itu.
-* **Momentum-Decay Profit Harvest (60s - 120s):**
-  - Begitu trade mengantongi $\ge 60\%$ dari Average Win harian dan momentum candle M1 melambat di detik 60–90, profit langsung dipanen (*Fast Salvage*).
+  - Begitu posisi bergerak untung $\ge 12$ pips (atau profit $\ge \$1.80$), Stop Loss secara otomatis digeser ke `Entry + 0.10` (untuk BUY) atau `Entry - 0.10` (untuk SELL). Posisi yang sudah sempat hijau terkunci bebas risiko (*risk-free*) dan dilarang keras kembali menjadi merah. Jika tersentuh kembali, akun keluar dengan impas (minus tipis 17 sen akibat spread broker) tanpa kehilangan modal.
+* **Solid Runner Harvest (Instant at Any Time):**
+  - Kapan pun lonjakan harga menghasilkan profit runner solid ($\ge \$7.50$ atau $\ge 1.25\times \text{Live Avg Win}$), bot memanen Take Profit **SEKETIKA (INSTANT HARVEST)** tanpa terhambat oleh timer durasi 90 detik.
+* **Defensive Momentum Harvest & Duration Stagnation (> 90s):**
+  - Jika posisi telah berjalan $\ge 90$ detik dan HTF mulai berlawanan arah (`OPPOSING`), profit sekecil $\ge \$3.50$ langsung diselamatkan secara defensif sebelum momentum benar-benar berbalik.
 * **Break-Even Pullback & Multi-Entry Modal Kecil:**
-  - Maksimal posisi terbuka dibatasi ketat **1–3 posisi** (bukan 10 layer liar).
+  - Maksimal posisi terbuka dibatasi ketat **1–2 posisi** (1 Initial + 1 Rescue Layer).
   - Titik Take-Profit keranjang ditarik ke **Average Entry + 3 pips buffer ($0.30)** untuk keluar impas/profit tipis secepatnya.
 * **Post-Trade Cooldown Armor:**
-  - Setelah terjadi cutloss clamp atau basket TP, sistem mengaktifkan jeda paksa **60–120 detik** untuk mencegah overtrading emosional ke dalam momentum berlawanan.
+  - Setelah terjadi cutloss clamp atau basket TP, sistem mengaktifkan jeda paksa **60–90 detik** untuk mencegah overtrading emosional ke dalam momentum berlawanan.
 
 ---
 

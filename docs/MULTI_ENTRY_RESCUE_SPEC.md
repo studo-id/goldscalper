@@ -13,7 +13,7 @@
 GoldScalper dirancang bukan sebagai bot grid/martingale buta yang menumpuk posisi tanpa dasar, melainkan sistem scalping institusional berbasis **37 Agen (8 Divisi)**. Dokumen ini mendefinisikan arsitektur **Multi-Entry Execution** dan **Defensive Rescue Mode (Smart Recovery)** untuk memaksimalkan peluang profit saat tren kuat, sekaligus mengamankan modal dan memulihkan posisi ketika pasar berbalik arah (*market reversal/whipsaw*).
 
 ### Key Objectives:
-1. **Target-Aware Multi-Entry (Max 3 Positions for Small-Capital Sprint):** Memungkinkan bot membuka hingga maksimal 3 posisi terbuka (1 initial + maks 2 rescue layers) secara presisi agar tidak membebani margin akun kecil ($50–$200), dengan batas absolut akun besar maksimal 10 posisi.
+1. **Target-Aware Multi-Entry (Max 2 Positions for Small-Capital Sprint):** Membatasi bot membuka hingga maksimal 2 posisi terbuka per sisi (1 initial + 1 rescue layer) secara presisi dengan jarak minimum $\ge 20$ pips agar tidak membebani margin akun kecil ($50–$200), dengan batas absolut akun besar maksimal 10 posisi.
 2. **Defensive Rescue Mode (Smart Recovery):** Ketika posisi mengalami *floating drawdown* akibat koreksi mendadak, bot mendeteksi zona pembalikan (*reversal pivot*) dan mengeksekusi posisi penyelamatan terukur.
 3. **Basket Take-Profit & Break-Even Pullback:** Seluruh posisi dalam keranjang (*basket*) dikelola secara kolektif dengan dynamic average break-even point + fast harvest buffer (3 pips).
 4. **Hard Capital Preservation & Daily Target Lock:** Menjaga eksposur margin agar tetap di atas 300% dan menghentikan trading begitu target harian 30%–40% tercapai via `DrawdownGuard`.
