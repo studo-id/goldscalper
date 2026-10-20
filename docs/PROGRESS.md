@@ -35,6 +35,42 @@ Aturan singkat:
 
 ---
 
+## 2026-10-20 — Micro-Exhaustion Pullback Guard (AcengGold-grade Micro Timing)
+
+**Phase / Area:** Core, Technical Division & SPK Veto (`core/market_regime.py`, `agents/divisions/technical/agents.py`, `spk/veto.py`, `tests/test_market_regime.py`)
+**Status:** Done
+
+**Yang dikerjakan**
+- **Investigasi Transaksi Loss #4899761578 & Perilaku AcengGold:**
+  - Posisi SELL 0.08 dibuka di dasar lembah (`4119.846`) tepat sebelum pantulan (*micro-bounce*) 11.5 pips naik ke 4121.0, memicu Juggler Dynamic Clamp cut loss (-$8.33).
+  - Investigasi log `aceng-bot` menemukan bahwa AcengGold menahan diri dengan veto: `[SPK HARD GATE] VETO SPK v3.5: REJECTED_MICRO_EXHAUSTION: M5 dan M1 keduanya berstatus BULLISH (terjadi pantulan di micro-structure)`.
+- **Implementasi Micro-Structure Voting & Pullback Guard:**
+  - Pada `core/market_regime.py`:
+    - Menghitung arah candle M5 (`m5_micro_vote`) dan bar M1 tertutup (`m1_micro_vote`) termasuk deteksi sumbu penolakan (*rejection wick* $\ge 40\%$).
+    - Jika $M1 = +1$ dan $M5 = +1$ (`BULLISH_BOUNCE`), tren turun dipause (`allow_trend_continuation = False`) untuk mencegah SELL di dasar lembah.
+    - Jika $M1 = -1$ dan $M5 = -1$ (`BEARISH_DIP`), tren naik dipause (`allow_trend_continuation = False`) untuk mencegah BUY di puncak.
+  - Pada `agents/divisions/technical/agents.py`:
+    - S/R agent mengaktifkan `VETO_SELL` seketika saat `BULLISH_BOUNCE` aktif di tren turun.
+    - S/R agent mengaktifkan `VETO_BUY` seketika saat `BEARISH_DIP` aktif di tren naik.
+  - Pada `spk/veto.py`:
+    - Menambahkan hard gatekeeper `REJECTED_MICRO_EXHAUSTION` sebagai lapis kedua sebelum order dieksekusi.
+- **Unit Testing:**
+  - Ditambahkan unit test di `tests/test_market_regime.py` untuk menguji pantulan micro-structure (55 passed).
+
+**File tersentuh**
+- `core/market_regime.py` — micro-structure vote and pullback pause
+- `agents/divisions/technical/agents.py` — S/R agent micro-exhaustion veto
+- `spk/veto.py` — SPK hard veto gate for micro-exhaustion
+- `tests/test_market_regime.py` — unit tests
+
+**Verifikasi**
+- `pytest tests/test_technical_division.py tests/test_market_regime.py tests/test_spk_veto.py` → 55 passed in 0.21s
+
+**Catatan / Next**
+- Deploy file ke server VPS `100.114.150.48` dan restart container `gs-bot`.
+
+---
+
 ## 2026-10-20 — Currency Filtering for News Blackout (USD Specific for XAUUSD)
 
 **Phase / Area:** Core Services (`core/calendar_service.py`, `tests/test_calendar_service.py`)

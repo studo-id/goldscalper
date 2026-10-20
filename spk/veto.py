@@ -206,6 +206,21 @@ def evaluate(
             reason="SESSION_HARD_CUTOFF_1530_UTC (no new intraday entries allowed after 15:30 UTC)",
         )
 
+    # --- Micro-Exhaustion Pullback Guard (AcengGold-grade) ---
+    m1_micro = extra.get("m1_micro_vote")
+    m5_micro = extra.get("m5_micro_vote")
+    if m1_micro is not None and m5_micro is not None:
+        if direction == ACTION_SELL and m1_micro == 1 and m5_micro == 1:
+            return VetoResult(
+                hard=True,
+                reason="REJECTED_MICRO_EXHAUSTION: M5 dan M1 keduanya berstatus BULLISH (terjadi pantulan di micro-structure)",
+            )
+        if direction == ACTION_BUY and m1_micro == -1 and m5_micro == -1:
+            return VetoResult(
+                hard=True,
+                reason="REJECTED_MICRO_EXHAUSTION: M5 dan M1 keduanya berstatus BEARISH (terjadi penolakan di micro-structure)",
+            )
+
     if state.flag("d1_extreme_zone", False):
         if htf_deadlock or is_ping_pong or sideways_mode:
             result.confidence_delta -= p.htf_conflict_penalty

@@ -231,6 +231,31 @@ class SupportResistance(TechnicalAgent):
                 if hasattr(state, "extra") and isinstance(state.extra, dict):
                     state.extra["market_regime"] = regime.regime
                     state.extra["market_regime_info"] = regime.to_dict()
+                    state.extra["m1_micro_vote"] = regime.m1_micro_vote
+                    state.extra["m5_micro_vote"] = regime.m5_micro_vote
+                    state.extra["micro_exhaustion"] = regime.micro_exhaustion
+
+                # 0. Micro-Exhaustion Protection (AcengGold-grade pullback timing guard)
+                # When in bear trend: if M1 & M5 are both bouncing bullish, veto continuation SELL at valley bottom
+                if regime.micro_exhaustion == "BULLISH_BOUNCE" and (regime.regime == REGIME_TRENDING_BEAR or regime.direction == "SELL"):
+                    meta["micro_sr_event"] = "MICRO_EXHAUSTION_BOUNCE"
+                    return self.signal(
+                        VOTE_NEUTRAL,
+                        0.75,
+                        f"micro-exhaustion active (M1+M5 bullish bounce), veto SELL [{regime.description}]",
+                        meta,
+                        veto=VETO_SELL,
+                    )
+                # When in bull trend: if M1 & M5 are both dipping bearish, veto continuation BUY at mountain peak
+                if regime.micro_exhaustion == "BEARISH_DIP" and (regime.regime == REGIME_TRENDING_BULL or regime.direction == "BUY"):
+                    meta["micro_sr_event"] = "MICRO_EXHAUSTION_DIP"
+                    return self.signal(
+                        VOTE_NEUTRAL,
+                        0.75,
+                        f"micro-exhaustion active (M1+M5 bearish dip), veto BUY [{regime.description}]",
+                        meta,
+                        veto=VETO_BUY,
+                    )
 
                 # 1. Confirmed M1 Breakout / Breakdown OR Active Trend Expansion (Stage 2)
                 if close < (m1_support - buf) or (regime.is_trending and regime.direction == "SELL" and pos_pct <= 0.40):

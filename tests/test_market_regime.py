@@ -99,3 +99,22 @@ async def test_support_resistance_trending_bear_allows_continuation_sell() -> No
     assert sig.veto != VETO_ALL
     assert sig.veto != VETO_SELL
     assert sig.veto == VETO_BUY  # Forbids buying against the downtrend
+
+
+@pytest.mark.asyncio
+async def test_support_resistance_micro_exhaustion_bounce_vetoes_sell() -> None:
+    # When market has overall bear trend but M1 and M5 are both currently bouncing bullish (green),
+    # SupportResistance should trigger MICRO_EXHAUSTION_BOUNCE and VETO_SELL!
+    # Prior M5 bars dropping, but last M5 is bullish green (close > open)
+    m5_rows = [(2360.0 - (i * 0.4), 2360.5 - (i * 0.4), 2359.0 - (i * 0.4), 2359.5 - (i * 0.4)) for i in range(24)]
+    m5_rows.append((2349.0, 2351.5, 2348.8, 2351.2))  # last M5 green
+    # Prior M1 bars dropping, but last M1 is bullish green
+    m1_rows = [(2354.0 - (i * 0.2), 2354.5 - (i * 0.2), 2353.5 - (i * 0.2), 2353.8 - (i * 0.2)) for i in range(23)]
+    m1_rows.append((2349.0, 2350.5, 2348.8, 2350.2))  # M1 close > open
+    m1_rows.append((2350.2, 2351.4, 2350.0, 2351.2))  # M1 close > open
+    st = SharedState(symbol=SYMBOL, frames={"M5": _frame("M5", m5_rows), "M1": _frame("M1", m1_rows)})
+
+    sig = await SupportResistance().evaluate(st)
+    assert sig.veto == VETO_SELL
+    assert sig.metadata.get("micro_sr_event") == "MICRO_EXHAUSTION_BOUNCE"
+

@@ -54,6 +54,9 @@ class MarketRegime:
     m1_span: float
     rsi_m1: float
     distance_from_mean_atr: float
+    m1_micro_vote: int = 0
+    m5_micro_vote: int = 0
+    micro_exhaustion: str = "NONE"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -69,6 +72,9 @@ class MarketRegime:
             "m1_span": round(self.m1_span, 2),
             "rsi_m1": round(self.rsi_m1, 1),
             "distance_from_mean_atr": round(self.distance_from_mean_atr, 2),
+            "m1_micro_vote": self.m1_micro_vote,
+            "m5_micro_vote": self.m5_micro_vote,
+            "micro_exhaustion": self.micro_exhaustion,
         }
 
 
@@ -132,6 +138,42 @@ def detect_market_regime(
     last_c = b_m1.closes[-1]
     upper_wick, lower_wick, _ = wick_stats(last_o, last_h, last_l, last_c)
 
+    # --- Micro-Structure Evaluation (AcengGold-grade) ---
+    # M5 Micro Vote: bar terakhir atau tertutup
+    m5_c = b_m5.closes[-1]
+    m5_o = b_m5.opens[-1]
+    m5_micro_vote = 1 if m5_c > m5_o else (-1 if m5_c < m5_o else 0)
+
+    # M1 Micro Vote: periksa bar terakhir dan rejection wick
+    bar_m1_idx = -2 if b_m1.n >= 3 else -1
+    m1_o = b_m1.opens[bar_m1_idx]
+    m1_h = b_m1.highs[bar_m1_idx]
+    m1_l = b_m1.lows[bar_m1_idx]
+    m1_c = b_m1.closes[bar_m1_idx]
+    c_range = max(0.05, m1_h - m1_l)
+    u_wick = m1_h - max(m1_o, m1_c)
+    l_wick = min(m1_o, m1_c) - m1_l
+    u_wick_pct = u_wick / c_range
+    l_wick_pct = l_wick / c_range
+    body_pct = abs(m1_c - m1_o) / c_range
+
+    if l_wick_pct >= 0.40 and (m1_c > m1_o or body_pct <= 0.35):
+        m1_micro_vote = 1  # Bullish rejection / hammer (pantulan dari dasar)
+    elif u_wick_pct >= 0.40 and (m1_c < m1_o or body_pct <= 0.35):
+        m1_micro_vote = -1  # Bearish rejection / shooting star (penolakan dari puncak)
+    elif m1_c > m1_o:
+        m1_micro_vote = 1  # Bullish candle
+    elif m1_c < m1_o:
+        m1_micro_vote = -1  # Bearish candle
+    else:
+        m1_micro_vote = 0
+
+    micro_exhaustion = "NONE"
+    if m1_micro_vote == 1 and m5_micro_vote == 1:
+        micro_exhaustion = "BULLISH_BOUNCE"
+    elif m1_micro_vote == -1 and m5_micro_vote == -1:
+        micro_exhaustion = "BEARISH_DIP"
+
     # 3. Stage 3: Trend Exhaustion Checks (Overextended / Climax)
     # Bearish Exhaustion: Active prior downward momentum now overstretched or rejecting
     has_prior_bear_move = (ema9 < ema21 or slope_m5 < -0.05 or dist_mean < -(0.5 * atr_m5))
@@ -153,6 +195,9 @@ def detect_market_regime(
             m1_span=m1_span,
             rsi_m1=rsi_m1,
             distance_from_mean_atr=dist_atr,
+            m1_micro_vote=m1_micro_vote,
+            m5_micro_vote=m5_micro_vote,
+            micro_exhaustion=micro_exhaustion,
         )
 
     # Bullish Exhaustion: Active prior upward momentum now overstretched or rejecting
@@ -175,6 +220,9 @@ def detect_market_regime(
             m1_span=m1_span,
             rsi_m1=rsi_m1,
             distance_from_mean_atr=dist_atr,
+            m1_micro_vote=m1_micro_vote,
+            m5_micro_vote=m5_micro_vote,
+            micro_exhaustion=micro_exhaustion,
         )
 
     # 4. Stage 4: Confirmed Reversal / CHoCH
@@ -193,6 +241,9 @@ def detect_market_regime(
             m1_span=m1_span,
             rsi_m1=rsi_m1,
             distance_from_mean_atr=dist_atr,
+            m1_micro_vote=m1_micro_vote,
+            m5_micro_vote=m5_micro_vote,
+            micro_exhaustion=micro_exhaustion,
         )
 
     # If after strong rally, strong bearish displacement breaks recent M1 swing low
@@ -210,53 +261,80 @@ def detect_market_regime(
             m1_span=m1_span,
             rsi_m1=rsi_m1,
             distance_from_mean_atr=dist_atr,
+            m1_micro_vote=m1_micro_vote,
+            m5_micro_vote=m5_micro_vote,
+            micro_exhaustion=micro_exhaustion,
         )
 
     # 5. Stage 2: Confirmed Trend Continuation (Breakout & Impulse Expansion)
     # Require real directional displacement: multi-bar progression, structural breakout (BOS), or active M1 cascade
     m5_bear_progression = b_m5.n >= 3 and (b_m5.closes[-1] < b_m5.closes[-2] < b_m5.closes[-3])
     m5_bull_progression = b_m5.n >= 3 and (b_m5.closes[-1] > b_m5.closes[-2] > b_m5.closes[-3])
+    prior_bear_progression = b_m5.n >= 4 and (b_m5.closes[-2] < b_m5.closes[-4])
+    prior_bull_progression = b_m5.n >= 4 and (b_m5.closes[-2] > b_m5.closes[-4])
 
     is_bear_trend = (
-        (ema9 < ema21 and slope_m5 < -0.10 and (m5_bear_progression or bos_bear or last_3_red))
+        (ema9 < ema21 and slope_m5 < -0.10 and (m5_bear_progression or prior_bear_progression or bos_bear or last_3_red))
         or (bos_bear and slope_m5 < 0.0)
         or (last_3_red and slope_m5 < -0.05)
     )
     if is_bear_trend:
+        # Micro-Exhaustion Pullback Guard (AcengGold-grade):
+        # Jika M1 dan M5 keduanya sedang mantul naik (BULLISH_BOUNCE),
+        # trend bearish sedang mengalami pullback -> JANGAN continuation SELL di dasar lembah!
+        is_paused = (micro_exhaustion == "BULLISH_BOUNCE")
         return MarketRegime(
             regime=REGIME_TRENDING_BEAR,
             confidence=0.85,
-            description=f"Confirmed Bearish Trend Expansion (EMA9 < EMA21, slope {slope_m5:+.2f}, active impulse)",
+            description=(
+                f"Bearish Trend Expansion (EMA9 < EMA21, slope {slope_m5:+.2f}) [PAUSED: M1+M5 Bullish Bounce]"
+                if is_paused
+                else f"Confirmed Bearish Trend Expansion (EMA9 < EMA21, slope {slope_m5:+.2f}, active impulse)"
+            ),
             is_trending=True,
-            is_exhausted=False,
-            allow_trend_continuation=True,
+            is_exhausted=is_paused,
+            allow_trend_continuation=not is_paused,
             allow_dead_zone=False,
-            direction="SELL",
+            direction="NEUTRAL" if is_paused else "SELL",
             m5_slope=slope_m5,
             m1_span=m1_span,
             rsi_m1=rsi_m1,
             distance_from_mean_atr=dist_atr,
+            m1_micro_vote=m1_micro_vote,
+            m5_micro_vote=m5_micro_vote,
+            micro_exhaustion=micro_exhaustion,
         )
 
     is_bull_trend = (
-        (ema9 > ema21 and slope_m5 > 0.10 and (m5_bull_progression or bos_bull or last_3_green))
+        (ema9 > ema21 and slope_m5 > 0.10 and (m5_bull_progression or prior_bull_progression or bos_bull or last_3_green))
         or (bos_bull and slope_m5 > 0.0)
         or (last_3_green and slope_m5 > 0.05)
     )
     if is_bull_trend:
+        # Micro-Exhaustion Pullback Guard (AcengGold-grade):
+        # Jika M1 dan M5 keduanya sedang pullback turun (BEARISH_DIP),
+        # trend bullish sedang mengalami pullback -> JANGAN continuation BUY di puncak!
+        is_paused = (micro_exhaustion == "BEARISH_DIP")
         return MarketRegime(
             regime=REGIME_TRENDING_BULL,
             confidence=0.85,
-            description=f"Confirmed Bullish Trend Expansion (EMA9 > EMA21, slope {slope_m5:+.2f}, active impulse)",
+            description=(
+                f"Bullish Trend Expansion (EMA9 > EMA21, slope {slope_m5:+.2f}) [PAUSED: M1+M5 Bearish Dip]"
+                if is_paused
+                else f"Confirmed Bullish Trend Expansion (EMA9 > EMA21, slope {slope_m5:+.2f}, active impulse)"
+            ),
             is_trending=True,
-            is_exhausted=False,
-            allow_trend_continuation=True,
+            is_exhausted=is_paused,
+            allow_trend_continuation=not is_paused,
             allow_dead_zone=False,
-            direction="BUY",
+            direction="NEUTRAL" if is_paused else "BUY",
             m5_slope=slope_m5,
             m1_span=m1_span,
             rsi_m1=rsi_m1,
             distance_from_mean_atr=dist_atr,
+            m1_micro_vote=m1_micro_vote,
+            m5_micro_vote=m5_micro_vote,
+            micro_exhaustion=micro_exhaustion,
         )
 
     # 6. Stage 1: Sideway Murni (Consolidation / Range Squeeze)
@@ -274,4 +352,7 @@ def detect_market_regime(
         m1_span=m1_span,
         rsi_m1=rsi_m1,
         distance_from_mean_atr=dist_atr,
+        m1_micro_vote=m1_micro_vote,
+        m5_micro_vote=m5_micro_vote,
+        micro_exhaustion=micro_exhaustion,
     )
