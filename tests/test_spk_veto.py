@@ -258,8 +258,7 @@ def test_session_hard_cutoff_1530_utc() -> None:
     assert "SESSION_HARD_CUTOFF_1530_UTC" in (result.reason or "")
 
 def test_extreme_valuation_boundary_hard_veto() -> None:
-    # An analysis agent signaling VETO_SELL because market is at EXTREME_DISCOUNT (support floor)
-    # Even during sideways_mode, this MUST remain a hard veto!
+    # When d1_macro_hard_veto_enabled=True, EXTREME_DISCOUNT remains a hard veto
     sig = AgentSignal(
         agent_id="TF-D1-Macro",
         division="timeframe",
@@ -269,8 +268,31 @@ def test_extreme_valuation_boundary_hard_veto() -> None:
         reasoning="Market is at EXTREME_DISCOUNT support boundary",
     )
     state = SharedState(extra={"market_regime": "SIDEWAY"})
-    result = evaluate([sig], state, ACTION_SELL)
+    result = evaluate([sig], state, ACTION_SELL, params=VetoParams(d1_macro_hard_veto_enabled=True))
     assert result.hard is True
     assert "EXTREME BOUNDARY" in (result.reason or "")
+
+
+def test_d1_macro_extreme_discount_softened_by_default() -> None:
+    # For agile scalping, TF-D1-Macro is softened to confidence penalty, not hard veto
+    sig = AgentSignal(
+        agent_id="TF-D1-Macro",
+        division="timeframe",
+        vote=0,
+        confidence=0.8,
+        veto=VETO_SELL,
+        reasoning="D1 macro BEARISH zone EXTREME_DISCOUNT",
+    )
+    state = SharedState(extra={"market_regime": "SIDEWAY"})
+    # Default params: d1_macro_hard_veto_enabled=False
+    result = evaluate([sig], state, ACTION_SELL)
+    assert result.hard is False
+    assert result.confidence_delta == -0.15
+    assert any("D1 Macro valuation softened" in n for n in result.notes)
+
+    # When explicitly configured with d1_macro_hard_veto_enabled=True:
+    p_hard = VetoParams(d1_macro_hard_veto_enabled=True)
+    result_hard = evaluate([sig], state, ACTION_SELL, params=p_hard)
+    assert result_hard.hard is True
 
 

@@ -33,6 +33,8 @@ class VetoParams:
     wide_spread_penalty: float = 0.20
     low_liquidity_penalty: float = 0.15
     min_confidence_floor: float = 0.0
+    d1_macro_hard_veto_enabled: bool = False
+    d1_macro_soft_penalty: float = 0.15
 
 
 @dataclass
@@ -144,6 +146,15 @@ def evaluate(
                 or (direction == ACTION_BUY and ("PREMIUM" in reason_upper or "EXTREME_PREMIUM" in reason_upper))
             )
             if is_extreme_location:
+                # D1 Macro Extreme Zones: For fast M1/M5 scalping, daily macro zones must NEVER
+                # hard-paralyze entries unless explicitly configured. Demote to a soft confidence penalty!
+                if (sig.agent_id == "TF-D1-Macro" or is_tf_agent) and not p.d1_macro_hard_veto_enabled:
+                    result.confidence_delta -= p.d1_macro_soft_penalty
+                    result.notes.append(
+                        f"D1 Macro valuation softened to confidence penalty (-{p.d1_macro_soft_penalty:.2f}) ({sig.agent_id}:{sig.reasoning or sig.veto})"
+                    )
+                    continue
+
                 return VetoResult(
                     hard=True,
                     reason=f"EXTREME BOUNDARY: {sig.agent_id} blocked {direction} at unfavorable valuation ({sig.reasoning or sig.veto})",

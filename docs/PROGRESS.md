@@ -35,6 +35,36 @@ Aturan singkat:
 
 ---
 
+## 2026-10-20 — De-eskalasi Veto D1 Macro Extreme Discount/Premium Menjadi Soft Confidence Penalty
+
+**Phase / Area:** SPK Veto Engine, Settings, Timeframe Division (`spk/veto.py`, `agents/orchestrator.py`, `config/settings.py`, `.env.example`, `tests/test_spk_veto.py`)
+**Status:** Done & Deployed
+
+**Yang dikerjakan:**
+1. **Menghilangkan Hard Veto `TF-D1-Macro` Penyebab Mogok Entry:**
+   - **Akar Masalah:** Evaluasi SPK mendapati order SELL spekulatif maupun momentum diblokir total oleh hard veto `EXTREME BOUNDARY: TF-D1-Macro blocked SELL at unfavorable valuation (D1 macro BEARISH zone EXTREME_DISCOUNT)`. Candle D1 memiliki rentang harian yang sangat lebar ($50–$100), sehingga status diskon harian mengunci veto SELL selama berjam-jam/berhari-hari dan melumpuhkan eksekusi scalper M1/M5.
+   - **Solusi Relaksasi SPK Veto Engine (`spk/veto.py`):**
+     - Agen timeframe makro seperti `TF-D1-Macro` kini di-deeskalasi dari hard blocking total menjadi **soft confidence penalty** (`-0.15`) secara default.
+     - Penilaian lokasi ekstrim makro D1 dicatat ke `notes` tanpa membatalkan order secara mutlak jika sinyal konfluensi dan multi-agent M1/M5 kompak mendukung trade.
+     - Menambahkan parameter konfigurasi `d1_macro_hard_veto_enabled: bool = False` di `VetoParams` dan `Settings` (default `False`), sehingga jika sewaktu-waktu ingin kembali ke mode hard veto harian, cukup diaktifkan via environment variable `D1_MACRO_HARD_VETO_ENABLED=true`.
+     - Mengintegrasikan parameter ke `agents/orchestrator.py` via `veto_params`.
+2. **Pengujian & Sinkronisasi:**
+   - Memperbarui unit test di `tests/test_spk_veto.py` dengan menambahkan `test_d1_macro_extreme_discount_softened_by_default()` yang memvalidasi bahwa `TF-D1-Macro` secara default menghasilkan `hard=False` dengan penalti `-0.15`.
+   - Menambahkan setting ke `.env.example`.
+
+**File tersentuh:**
+- `spk/veto.py` — De-eskalasi D1 macro extreme valuation ke soft confidence penalty
+- `agents/orchestrator.py` — Penerusan konfigurasi `d1_macro_hard_veto_enabled` ke VetoParams
+- `config/settings.py` — Parameter `d1_macro_hard_veto_enabled: bool = False`
+- `.env.example` — Variabel `D1_MACRO_HARD_VETO_ENABLED=false`
+- `tests/test_spk_veto.py` — Pengujian unit test relaksasi D1 macro
+- `docs/PROGRESS.md` — Pencatatan log kemajuan
+
+**Verifikasi:**
+- `pytest tests/test_spk_veto.py tests/test_orchestrator.py -v` → 37 passed in 0.24s.
+
+---
+
 ## 2026-10-20 — Realtime Chart Gap Auto-Healing & Tab Switching Continuity
 
 **Phase / Area:** Frontend Cockpit Realtime Chart (`frontend/js/chart.js`, `frontend/js/app.js`, `frontend/js/agents.js`, `frontend/index.html`)

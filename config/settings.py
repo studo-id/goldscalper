@@ -98,6 +98,7 @@ class Settings(BaseSettings):
     hard_cutoff_utc_enabled: bool = False      # Hard cutoff on new entries starting 15:30 UTC (default False for active sprint)
     overnight_flat_utc_enabled: bool = True   # Flag open intraday trades for flat exit before 21:00 UTC
     d1_macro_bias_veto_enabled: bool = True   # Veto opposing trades when D1 Macro has clear confirmed trend
+    d1_macro_hard_veto_enabled: bool = False  # False: D1 Macro extreme zones are soft confidence penalties, not hard vetoes
 
     # --- Micro-SR & Anti-Chasing Veto (M1 Confirmation Range) ---
     micro_sr_veto_enabled: bool = True

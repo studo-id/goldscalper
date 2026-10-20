@@ -64,7 +64,8 @@ class Orchestrator:
         self.decision_repo = decision_repo
         self.thresholds = thresholds or SPKThresholds()
         self.veto_params = veto_params or VetoParams(
-            max_spread_points=self.settings.max_spread_points
+            max_spread_points=self.settings.max_spread_points,
+            d1_macro_hard_veto_enabled=getattr(self.settings, "d1_macro_hard_veto_enabled", False),
         )
         self.risk_gate = risk_gate
         self.broadcast = broadcast
