@@ -35,6 +35,35 @@ Aturan singkat:
 
 ---
 
+## 2026-10-20 — Penyelarasan M1 Candle Formation Grace Period (60s) & Multi-Entry Shield
+
+**Phase / Area:** Execution Layer, Risk & Exit Architecture (`execution/position_manager.py`, `tests/test_execution.py`)
+**Status:** Done
+
+**Yang dikerjakan**
+- **Mengembalikan Kedaulatan M1 Grace Period (60 Detik Utuh):**
+  - Mengeliminasi *loophole* di Phase 0 di mana ambang batas darurat `1.15x clamp` (-$8.05) sebelumnya menyebabkan fluktuasi normal sumbu candle M1 (10–16 pips pada lot 0.05–0.08) membatalkan *Grace Period* dan memicu cut loss prematur di detik 16s–37s.
+  - Mempertegas syarat penahanan utuh 60 detik: Selama `held < min_hold` (60 detik), posisi terlindungi penuh dari *intra-candle noise* kecuali terjadi *runaway flash crash / catastrophic gap* $\ge 20$–$25$ pips ($-\$14.00+$).
+  - Menegakkan `held >= min_hold` secara eksplisit pada Phase 3 (`juggler_dynamic_clamp`), sehingga *Dynamic Clamp* baru diperbolehkan bertindak setelah candle M1 resmi *close*.
+- **Membuka Ruang Nafas untuk Multi-Entry Rescue Layering:**
+  - Dengan amannya posisi Layer 1 dari pembunuhan dini pada jarak 10–16 pips, harga kini memiliki ruang untuk mencapai zona Rescue Layer ($\ge 20$–$30$ pips) saat terjadi *pullback*, memungkinkan strategi keranjang (*Basket Recovery*) bekerja sesuai spesifikasi.
+- **Unit Test & Test Suite:**
+  - Memperbarui `tests/test_execution.py` untuk memvalidasi proteksi loss -$9.00 di detik 35s tetap utuh (*protected*), dan catastrophic gap cut bekerja di level $-\$25.00$.
+
+**File tersentuh**
+- `execution/position_manager.py` — Penguatan Phase 0 grace period 60s, kalibrasi batas gap ekstrem, dan penambahan syarat `held >= min_hold` pada dynamic clamp.
+- `tests/test_execution.py` — Penambahan test case intra-candle wick protection dan catastrophic gap cut.
+- `tests/test_orchestrator.py` — Penyesuaian test fixture hard veto.
+- `docs/PROGRESS.md` — Pencatatan worklog kronologis.
+
+**Verifikasi**
+- `python -m pytest tests/test_execution.py` → 18 passed.
+- `python -m pytest tests/test_execution.py tests/test_risk_division.py tests/test_spk_veto.py tests/test_orchestrator.py tests/test_wave_engine.py tests/test_market_regime.py tests/test_technical_division.py` → 115 passed in 0.49s.
+- `scp execution/position_manager.py studo@100.114.150.48:...` → File tersinkronisasi ke server VPS.
+- `docker restart gs-bot` → Container aktif dan live trading normal.
+
+---
+
 ## 2026-10-20 — Cockpit URL Tab Parameter & Recent Trades Auto-Hydration Fix
 
 **Phase / Area:** Frontend Cockpit, Router & Navigation (`frontend/js/app.js`, `frontend/js/agents.js`)

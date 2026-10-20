@@ -309,11 +309,23 @@ async def test_watchdog_time_extension_and_invalidation_cut() -> None:
     dec_adv = SPKDecision(action=ACTION_BUY, score=-3.0, confidence=0.8, votes=adverse_signals)
     pos.profit = -7.00  # floating loss exceeding early threshold ($7.00 >= $6.40)
 
-    # 2a. Under 60s (e.g. 35s): Intra-candle M1 wick grace period PROTECTS the position!
+    # 2a. Under 60s (e.g. 35s): Intra-candle M1 wick grace period PROTECTS the position even at -$9.00!
+    pos.profit = -9.00
     pm._states[pos.ticket].opened_at = now - timedelta(seconds=35)
     actions_wick = await pm.manage(pos, price=2349.5, now=now, context={"decision": dec_adv})
     assert "watchdog_early_invalidation_cut" not in actions_wick
+    assert "juggler_dynamic_clamp" not in actions_wick
     assert len(await client.positions("XAUUSD")) == 1
+
+    # 2a-gap. Under 60s with catastrophic loss (>= 20 pips, e.g. -$25.00 on 0.10 lot): triggers catastrophic cut!
+    pos.profit = -25.00
+    actions_cat = await pm.manage(pos, price=2349.5, now=now, context={"decision": dec_adv})
+    assert "juggler_catastrophic_gap_cut" in actions_cat
+    assert await client.positions("XAUUSD") == []
+
+    # Re-open position for subsequent 65s tests
+    pos = await _open_position(client, sl=2335.0, volume=0.10)
+    pm.track(pos)
 
     # 2b. At 65s (held >= 60s), if M1 opposes but M5 is SUPPORTING: DO NOT CUT — Hold for M5 Reversal!
     m5_supp_signals = [

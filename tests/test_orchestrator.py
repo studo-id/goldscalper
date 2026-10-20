@@ -52,7 +52,7 @@ async def test_balanced_is_hold() -> None:
 async def test_hard_veto_makes_untradable() -> None:
     reg = _registry(
         DummyAgent("c1", division="risk", vote=VOTE_BUY, confidence=1.0, weight=2.0),
-        DummyAgent("c2", division="timeframe", vote=VOTE_NEUTRAL, confidence=1.0, veto=VETO_BUY),
+        DummyAgent("c2", division="risk", vote=VOTE_NEUTRAL, confidence=1.0, veto=VETO_BUY),
     )
     orch = Orchestrator(reg, bus=MemoryBus(), broadcast=False)
     decision = await orch.run_cycle()

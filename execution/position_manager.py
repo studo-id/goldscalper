@@ -263,10 +263,26 @@ class PositionManager:
             effective_clamp_usd = min(base_clamp, max_clamp_ceiling)
 
             # 2. Phase 0: Noise & M1 Candle Formation Grace Period (0 - 60s)
-            # Never cut on unclosed M1 candle wicks (< 60s) unless loss breaches hard clamp ceiling (catastrophic gap)
+            # Never cut on unclosed M1 candle wicks (< 60s) unless runaway flash crash / catastrophic gap (>= 20-25 pips / $14+)
             min_hold = getattr(s, "watchdog_min_hold_seconds", 60)
-            if held < min_hold and current_loss > -(effective_clamp_usd * 1.15):
-                pass  # Grace period: allow 1 full M1 candle (60s) to form cleanly
+            catastrophic_gap_usd = max(14.0, round(effective_clamp_usd * 1.80, 2), round(pos.volume * 2.00 * 100.0, 2))
+            if held < min_hold and current_loss > -catastrophic_gap_usd:
+                pass  # Grace period: allow 1 full M1 candle (60s) to form cleanly without wick panic
+
+            elif held < min_hold and current_loss <= -catastrophic_gap_usd:
+                log.warning(
+                    "JUGGLER CATASTROPHIC GAP CUT: Cutting ticket %s (%s %.2f, loss=%.2f <= -$%.2f flash breach within %ds)",
+                    pos.ticket,
+                    pos.side,
+                    pos.volume,
+                    current_loss,
+                    catastrophic_gap_usd,
+                    int(held),
+                )
+                await self.client.close_position(pos.ticket, price=price)
+                self.untrack(pos.ticket)
+                actions.append("juggler_catastrophic_gap_cut")
+                return actions
 
             # 3. Phase 1: Satpam M1/M5 Early Invalidation Cut (Cut Loss Dini setelah 1 Candle M1 Close)
             elif (
@@ -312,7 +328,7 @@ class PositionManager:
                 return actions
 
             # 5. Phase 3: Dynamic Hard Clamp (Strict Capital Protection - NO UNBOUNDED RISK)
-            elif s.hard_loss_clamp_enabled and current_loss <= -abs(effective_clamp_usd):
+            elif s.hard_loss_clamp_enabled and held >= min_hold and current_loss <= -abs(effective_clamp_usd):
                 log.warning(
                     "JUGGLER DYNAMIC CLAMP: Cutting ticket %s (%s %.2f, loss=%.2f <= -$%.2f [HTF=%s, avg_win $%.2f])",
                     pos.ticket,
