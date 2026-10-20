@@ -35,6 +35,39 @@ Aturan singkat:
 
 ---
 
+## 2026-10-20 — Data-Driven Wave Engine & Smart Broken-Wave Cooldown
+
+**Phase / Area:** Core, SPK Veto & Execution (`core/wave_engine.py`, `runtime.py`, `spk/veto.py`, `tests/test_wave_engine.py`)
+**Status:** Done
+
+**Yang dikerjakan**
+- **Mengembangkan Data-Driven Wave Engine (Menggantikan Limit Rantai Statis):**
+  - Alih-alih membatasi trade dengan angka kaku (3x chain seperti AcengGold yang memotong peluang runner), kapasitas gelombang kini diproyeksikan langsung dari **telemetri pasar**:
+    - **`HEALTHY` ($\text{Extension} \le 1.8\times \text{ATR}$):** Tren masih muda dan bertenaga penuh $\rightarrow$ rapid chaining diizinkan tanpa batas statis.
+    - **`MATURE` ($1.8\times < \text{Extension} \le 2.5\times \text{ATR}$):** Tren matang $\rightarrow$ sizing dipotong menjadi 0.75x untuk proteksi modal.
+    - **`EXHAUSTED` ($\text{Extension} > 2.5\times \text{ATR}$ atau penolakan sumbu $\ge 40\%$):** Kapasitas gelombang habis $\rightarrow$ menolak entry searah baru (`VETO_WAVE`).
+- **Smart Broken-Wave Invalidation (90s Scalper Cooldown):**
+  - Berbeda dengan jeda 10 menit AcengGold yang terlalu lama untuk M1 scalper, jika suatu gelombang patah (cutloss):
+    - Bot hanya mengunci arah yang patah tersebut selama **90 detik** (`broken_wave_cooldown_s = 90`).
+    - **Arah berlawanan TIDAK terkunci**, sehingga bot bebas menangkap reversal instan.
+    - **Early Release:** Cooldown dapat di-unlock otomatis jika terbentuk validasi struktur lilin baru.
+- **Unit Testing:**
+  - Ditambahkan `tests/test_wave_engine.py` (3 test komprehensif, 100% passed).
+
+**File tersentuh**
+- `core/wave_engine.py` — Engine kapasitas gelombang & broken-wave tracker
+- `runtime.py` — Wiring wave engine lifecycle (open/close tracker dan state injection)
+- `spk/veto.py` — SPK hard veto gate untuk kapasitas gelombang & broken wave cooldown
+- `tests/test_wave_engine.py` — Unit test suite
+
+**Verifikasi**
+- `pytest tests/test_wave_engine.py tests/test_technical_division.py tests/test_market_regime.py tests/test_spk_veto.py` → 60 passed in 0.23s
+
+**Catatan / Next**
+- Deploy file ke server VPS `100.114.150.48` dan restart container `gs-bot`.
+
+---
+
 ## 2026-10-20 — Micro-Exhaustion Pullback Guard (AcengGold-grade Micro Timing)
 
 **Phase / Area:** Core, Technical Division & SPK Veto (`core/market_regime.py`, `agents/divisions/technical/agents.py`, `spk/veto.py`, `tests/test_market_regime.py`)

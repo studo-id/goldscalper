@@ -33,6 +33,7 @@ from config.settings import settings as default_settings
 from core.calendar_service import EconomicCalendarService
 from core.clock import MarketClock
 from core.cross_asset import CrossAssetService
+from core.wave_engine import DataDrivenWaveEngine
 from core.news_sentiment_service import NewsSentimentService
 from core.market_data import MarketDataCache
 from core.mt5_connector import MT5Client, TickStreamer, create_client
@@ -69,6 +70,7 @@ class Runtime:
             post_news_minutes=getattr(self.settings, "news_blackout_post_minutes", 20),
         )
         self.news_sentiment = NewsSentimentService()
+        self.wave_engine = DataDrivenWaveEngine(broken_wave_cooldown_s=90, idle_reset_s=150)
         self._persistence = enable_persistence
         self._frame_depth = frame_depth
 
@@ -225,6 +227,8 @@ class Runtime:
                 float(last_dec.confidence or 0.0) >= 0.70 or abs(float(last_dec.score or 0.0)) >= 5.0
             )
 
+        extra_state["wave_engine"] = self.wave_engine
+
         state = SharedState(
             symbol=self.symbol,
             ts=now_dt,
@@ -349,6 +353,10 @@ class Runtime:
             if result is not None and result.ok and result.ticket is not None:
                 self.orders_placed += 1
                 self._last_order_placed_at = utcnow()
+                self.wave_engine.record_trade_opened(
+                    decision.action,
+                    price=float(result.price or decision.entry or state.last_price() or 0.0),
+                )
                 risk = None
                 if decision.entry is not None and decision.sl is not None:
                     risk = abs(decision.entry - decision.sl)
@@ -474,6 +482,8 @@ class Runtime:
 
         pnl = float(info.get("last_profit", 0.0) or 0.0)
         vol = float(info.get("volume", 0.01) or 0.01)
+        side = str(info.get("direction") or info.get("side") or "BUY").upper()
+        self.wave_engine.record_trade_closed(is_win=(pnl > 0), direction=side)
 
         if not self._trades:
             if pnl > 0:

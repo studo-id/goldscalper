@@ -221,6 +221,17 @@ def evaluate(
                 reason="REJECTED_MICRO_EXHAUSTION: M5 dan M1 keduanya berstatus BEARISH (terjadi penolakan di micro-structure)",
             )
 
+    # --- Data-Driven Wave Capacity & Broken Wave Guard ---
+    wave_engine = extra.get("wave_engine")
+    if wave_engine is not None and direction in (ACTION_BUY, ACTION_SELL):
+        wave_cap = wave_engine.evaluate_wave(state, candidate_direction=direction)
+        extra["wave_capacity"] = wave_cap.to_dict()
+        if not wave_cap.can_chain:
+            return VetoResult(hard=True, reason=f"VETO_WAVE: {wave_cap.reason}")
+        if wave_cap.capacity == "MATURE":
+            result.confidence_delta -= 0.05
+            result.notes.append(f"Wave is mature ({wave_cap.extension_atr:.1f}x ATR)")
+
     if state.flag("d1_extreme_zone", False):
         if htf_deadlock or is_ping_pong or sideways_mode:
             result.confidence_delta -= p.htf_conflict_penalty
