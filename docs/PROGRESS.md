@@ -35,6 +35,34 @@ Aturan singkat:
 
 ---
 
+## 2026-10-20 — Kalibrasi Agresif & Relaksasi SPK Confidence Floor di Drawdown Defense Mode
+
+**Phase / Area:** SPK Orchestrator, Settings Configuration (`agents/orchestrator.py`, `config/settings.py`, `.env.example`)
+**Status:** Done & Deployed
+
+**Yang dikerjakan:**
+1. **Relaksasi SPK Confidence Floor untuk Memulihkan Frekuensi Scalping:**
+   - Evaluasi telemetri live mendapati bot menahan entry selama >35 menit karena sinyal BUY (skor 1.465, confidence 0.4741) terblokir oleh hard veto `LOW CONFIDENCE (0.47 < 0.50)` di mode Defense.
+   - Sinyal confidence sebelumnya sudah terkena penalti `pnl_drag` hingga -0.15 akibat drawdown harian, sehingga floor statis 0.50 menjadi hambatan ganda (*double penalty*) yang mematikan frekuensi trading scalper.
+   - Mengalihkan hardcoded floor ke konfigurasi dinamis di `config/settings.py`:
+     - `min_confidence_floor_normal`: 0.35 (sebelumnya hardcode 0.40).
+     - `min_confidence_floor_defense`: 0.38 (sebelumnya hardcode 0.50).
+   - Menghubungkan orchestrator ke setting ini (`getattr(self.settings, ...)`), sehingga sinyal scalper valid dengan keyakinan di atas 38% (seperti 0.47) dapat langsung dieksekusi tanpa tertahan veto.
+2. **Sinkronisasi Konfigurasi & Lingkungan:**
+   - Menambahkan variabel `MIN_CONFIDENCE_FLOOR_NORMAL` dan `MIN_CONFIDENCE_FLOOR_DEFENSE` ke `.env.example`.
+   - Menjalankan unit test dan mendeploy pembaruan ke server VPS production (`gs-bot`).
+
+**File tersentuh:**
+- `config/settings.py` — Penambahan parameter `min_confidence_floor_normal` dan `min_confidence_floor_defense`
+- `agents/orchestrator.py` — Penggunaan parameter dinamis confidence floor dengan batas relaksasi (0.35 / 0.38)
+- `.env.example` — Dokumentasi variabel lingkungan baru
+- `docs/PROGRESS.md` — Pencatatan log kemajuan
+
+**Verifikasi:**
+- `pytest tests/test_orchestrator.py tests/test_spk_voting.py tests/test_execution.py -v` → 38 passed in 0.31s.
+
+---
+
 ## 2026-10-20 — Proteksi Sideway Ekstrim & TradingView-Style Realtime Candle Countdown Badge
 
 **Phase / Area:** SPK Orchestrator, Veto Engine, Order Manager, Frontend Realtime Chart (`frontend/js/chart.js`, `frontend/css/cockpit.css`)

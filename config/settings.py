@@ -156,6 +156,10 @@ class Settings(BaseSettings):
     radar_watchdog_enabled: bool = True
     radar_report_interval_s: int = 300          # 5 minutes: emit scalper radar report if no trades
 
+    # --- SPK Confidence Floors (Scalper Frequency Calibration) ---
+    min_confidence_floor_normal: float = 0.35   # Normal/growth mode floor (calibrated for scalper)
+    min_confidence_floor_defense: float = 0.38  # Drawdown defense mode floor (relaxed from 0.50)
+
     # --- BizDev: Rebate & Friction Engine ---
     bizdev_enabled: bool = True
     rebate_per_lot_usd: float = 6.00         # Estimated IB rebate per lot on XAUUSD

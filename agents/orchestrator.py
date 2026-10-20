@@ -138,10 +138,12 @@ class Orchestrator:
             decision.confidence = round(max(0.0, min(1.0, confidence)), 4)
 
             # Minimum Confidence Floor Protection (Anti-deadlock / Low-Conviction Execution):
-            # A trade decision must have at least 0.40 confidence (or 0.50 during Drawdown Defense).
-            # If multi-agent division is deeply conflicted or penalized, it MUST NOT open speculative trades!
+            # A trade decision must meet configurable confidence floors (default 0.35 normal, 0.38 defense).
+            # Relaxed to allow fast scalper execution while filtering extreme chaos.
             daily_pnl_pct = float(getattr(state, "daily_pnl_pct", 0.0) or 0.0) if state else 0.0
-            min_conf_floor = 0.50 if daily_pnl_pct < 0.0 else 0.40
+            def_floor = float(getattr(self.settings, "min_confidence_floor_defense", 0.38) or 0.38)
+            norm_floor = float(getattr(self.settings, "min_confidence_floor_normal", 0.35) or 0.35)
+            min_conf_floor = def_floor if daily_pnl_pct < 0.0 else norm_floor
             if decision.confidence < min_conf_floor and not decision.hard_veto:
                 decision.hard_veto = True
                 decision.veto_reason = (
