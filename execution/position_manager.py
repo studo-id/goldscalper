@@ -431,37 +431,38 @@ class PositionManager:
                     pos.sl = be_sl
                     actions.append("breakeven_locked")
 
-            # 6. Momentum-Decay Profit Harvest:
-            # Let winning trades breathe! Only harvest if HTF opposes or target >= $7.50 / 1.25x avg win
+            # 6. Solid Runner Harvest (Instant at Any Time):
+            # When price spikes into a solid runner profit (>= $7.50 or 1.25x avg win), harvest IMMEDIATELY!
             live_avg_win = float(ctx.get("live_avg_win", 0.0) or 0.0)
             runner_target = max(7.50, round(live_avg_win * 1.25, 2)) if live_avg_win >= 2.0 else 7.50
+            if s.juggler_enabled and current_profit >= runner_target:
+                log.info(
+                    "JUGGLER RUNNER HARVEST: Ticket %s held %ds with solid profit=+$%.2f >= $%.2f",
+                    pos.ticket,
+                    int(held),
+                    current_profit,
+                    runner_target,
+                )
+                await self.client.close_position(pos.ticket, price=price)
+                self.untrack(pos.ticket)
+                actions.append("juggler_runner_harvest")
+                return actions
+
+            # 7. Defensive Momentum Harvest (Held >= 90s):
+            # If position held >= 90s and HTF opposes, harvest defensively (current_profit >= $3.50)
             if s.juggler_enabled and held >= 90:
-                # If HTF scouts actively oppose us, take profit defensively before momentum fully reverses
-                if htf_bias["verdict"] == "HTF_OPPOSING" and current_profit >= 3.50:
+                is_htf_opposing_harvest = htf_bias.get("verdict") in ("OPPOSING", "HTF_OPPOSING")
+                if is_htf_opposing_harvest and current_profit >= 3.50:
                     log.info(
                         "JUGGLER HTF DEFENSIVE HARVEST: Ticket %s held %ds, profit=+$%.2f with HTF opposing: %s",
                         pos.ticket,
                         int(held),
                         current_profit,
-                        htf_bias["opposing"],
+                        htf_bias.get("opposing", []),
                     )
                     await self.client.close_position(pos.ticket, price=price)
                     self.untrack(pos.ticket)
                     actions.append("juggler_htf_defensive_harvest")
-                    return actions
-
-                # If runner target reached, harvest solid win!
-                elif current_profit >= runner_target:
-                    log.info(
-                        "JUGGLER RUNNER HARVEST: Ticket %s held %ds with solid profit=+$%.2f >= $%.2f",
-                        pos.ticket,
-                        int(held),
-                        current_profit,
-                        runner_target,
-                    )
-                    await self.client.close_position(pos.ticket, price=price)
-                    self.untrack(pos.ticket)
-                    actions.append("juggler_runner_harvest")
                     return actions
 
         # Stagnant Trade Fast Scalp Harvest (Salvage TP)

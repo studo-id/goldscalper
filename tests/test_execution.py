@@ -391,4 +391,22 @@ async def test_htf_reversal_shield_protects_minor_pullback() -> None:
     assert await client.positions("XAUUSD") == []
 
 
+async def test_instant_runner_harvest_at_any_time() -> None:
+    client = MockMT5Client()
+    pm = PositionManager(client=client, settings=settings)
+    now = utcnow()
+    pos = await _open_position(client, sl=2335.0, volume=0.06)
+    pm.track(pos)
+
+    # Position held only 45s (< 90s), but market plunges delivering +$12.50 runner profit
+    pm._states[pos.ticket].opened_at = now - timedelta(seconds=45)
+    pos.profit = 12.50
+
+    actions = await pm.manage(pos, price=2348.0, now=now)
+    # Runner harvest executes immediately without waiting for 90s!
+    assert "juggler_runner_harvest" in actions
+    assert await client.positions("XAUUSD") == []
+
+
+
 

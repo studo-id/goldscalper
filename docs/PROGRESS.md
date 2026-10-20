@@ -35,6 +35,27 @@ Aturan singkat:
 
 ---
 
+## 2026-10-20 — Hotfix Instant Runner Harvest & Eliminasi Barrier 90 Detik TP
+
+**Phase / Area:** Execution Layer & Position Management (`execution/position_manager.py`, `tests/test_execution.py`)
+**Status:** Done & Deployed to VPS
+
+**Yang dikerjakan**
+- **Analisis Lonjakan Profit Tidak Terambil di Titik Terbawah (Tiket 4900529726):**
+  - Posisi SELL dibuka di 4,120.91. Harga emas menukik tajam ke 4,118.00 (floating profit mencapai +$17.46 pada lot 0.06).
+  - Namun TP tidak tereksekusi di titik bawah tersebut, dan baru ditutup di 4,120.30 dengan sisa profit hanya +$3.63 setelah harga memantul.
+  - **Ditemukan Root Cause:** Di `execution/position_manager.py`, logika `current_profit >= runner_target` terselip di dalam blok `if s.juggler_enabled and held >= 90:`.
+  - Akibatnya, saat lonjakan profit terjadi di detik ke-65 (< 90s), sistem menolak memanen profit dan membiarkan posisi mengambang sampai detik ke-90 saat harga sudah keburu memantul naik.
+  - Selain itu, order hard TP broker dipasang terlalu jauh di 4,114.26 (66.5 pips), sehingga tidak tersentuh saat harga mencapai 4,118.00.
+- **Solusi Eksekusi Cepat:**
+  - Memisahkan logika Solid Runner Harvest agar dieksekusi **SEKETIKA (Instant at Any Time)** begitu `current_profit >= runner_target` ($\ge \$7.50$ atau $1.25\times \text{avg win}$) tanpa memedulikan batas waktu 90 detik.
+  - Menjaga pertahanan defensif `held >= 90s` hanya untuk harvest darurat saat momentum macet / HTF berbalik arah.
+- **Verifikasi & Deployment:**
+  - Menambahkan unit test `test_instant_runner_harvest_at_any_time` di `tests/test_execution.py` (20 passed).
+  - Berhasil lulus uji Docker di container VPS (16 passed).
+  - Deploy file ke server VPS dan restart `gs-bot`.
+
+
 ## 2026-10-20 — Hotfix Perlindungan Lilin M1 (0-60 Detik) & Penaikan Ambang Catastrophic Gap
 
 **Phase / Area:** Execution Layer & Position Management (`execution/position_manager.py`, `tests/test_execution.py`)
