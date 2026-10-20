@@ -2,7 +2,7 @@
 // collapsible sidebar, session popover, and service worker.
 
 import { esc, fmtMoney, fmtPrice, hydrateIcons, icon, openModal, toast } from "./components.js?v=20261020_02";
-import { COCKPIT_SUBTABS, VIEWS } from "./agents.js?v=20261020_02";
+import { COCKPIT_SUBTABS, VIEWS } from "./agents.js?v=20261020_03";
 import {
   api,
   connectTelemetry,
@@ -797,8 +797,20 @@ function wire() {
   subscribe(() => scheduleRender());
 
   document.addEventListener("visibilitychange", () => {
-    if (document.hidden) disconnectTelemetry();
-    else if (state.token) connectTelemetry();
+    if (document.hidden) {
+      clearTimeout(window._tabIdleTimer);
+      window._tabIdleTimer = setTimeout(() => {
+        if (document.hidden) disconnectTelemetry();
+      }, 60000);
+    } else {
+      clearTimeout(window._tabIdleTimer);
+      if (state.token) {
+        connectTelemetry();
+      }
+      if (VIEWS.cockpit?.chart?.syncLatestCandles) {
+        VIEWS.cockpit.chart.syncLatestCandles();
+      }
+    }
   });
 
   window.addEventListener("resize", () => updateCockpitTicker());

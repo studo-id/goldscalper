@@ -35,6 +35,34 @@ Aturan singkat:
 
 ---
 
+## 2026-10-20 — Realtime Chart Gap Auto-Healing & Tab Switching Continuity
+
+**Phase / Area:** Frontend Cockpit Realtime Chart (`frontend/js/chart.js`, `frontend/js/app.js`, `frontend/js/agents.js`, `frontend/index.html`)
+**Status:** Done & Deployed
+
+**Yang dikerjakan:**
+1. **Mengeliminasi Gap / Lilin Kosong saat Berpindah Tab Browser:**
+   - **Akar Masalah:** Sebelumnya `app.js` memutus WebSocket seketika saat `document.hidden` aktif, dan ketika pengguna kembali ke tab, `PriceChart` tidak melakukan sinkronisasi ulang candle historis yang terbentuk selama tab ditinggalkan. Lilin baru ditambahkan pada waktu sekarang via `pushTick` sehingga meninggalkan celah kosong (*gap*) di chart.
+   - **Implementasi Auto-Heal Seamless (`frontend/js/chart.js`):**
+     - Menambahkan method `syncLatestCandles()` yang mengambil 300 candle terkini dari `/api/candles`, menggabungkannya secara kontinu (*Map deduplication*), dan memperbarui visual series tanpa merusak view scroll pengguna.
+     - Menambahkan pendeteksi celah dinamis di `pushTick(bid, ask, ts)`: jika jarak waktu antara candle aktif dengan tick baru $\ge 2\times \text{period}$ (`gapSec >= 2 * tfSec`), `syncLatestCandles()` otomatis dipicu untuk menambal candle yang terlewat.
+     - Mengaitkan event `visibilitychange` di `PriceChart`: saat tab kembali aktif (`!document.hidden`), chart langsung melakukan sinkronisasi candle terbaru secara instan.
+2. **Graceful Background Telemetry & Cache Busting:**
+   - Di `frontend/js/app.js`, memodifikasi `visibilitychange` dengan timer tenggang waktu 60 detik (*graceful idle delay*) agar WebSocket tidak putus-nyambung saat beralih tab sejenak.
+   - Sinkronisasi instan cockpit chart saat kembali aktif: `VIEWS.cockpit?.chart?.syncLatestCandles()`.
+   - Menaikkan cache-busting query parameter ke `?v=20261020_03` di `frontend/index.html`, `frontend/js/app.js`, dan `frontend/js/agents.js`.
+
+**File tersentuh:**
+- `frontend/js/chart.js` — Penambahan `syncLatestCandles()`, gap detection di `pushTick`, dan auto-heal di `visibilitychange`
+- `frontend/js/app.js` — Graceful 60s idle disconnect dan trigger re-sync chart saat visible
+- `frontend/js/agents.js`, `frontend/index.html` — Cache busting ke `v=20261020_03`
+- `docs/PROGRESS.md` — Pencatatan log kemajuan
+
+**Verifikasi:**
+- Validasi browser event lifecycle dan pengujian visual deployment ke server VPS production.
+
+---
+
 ## 2026-10-20 — Kalibrasi Agresif & Relaksasi SPK Confidence Floor di Drawdown Defense Mode
 
 **Phase / Area:** SPK Orchestrator, Settings Configuration (`agents/orchestrator.py`, `config/settings.py`, `.env.example`)

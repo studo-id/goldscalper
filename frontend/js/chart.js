@@ -30,6 +30,8 @@ export class PriceChart {
     this.bars = [];
     this.isFetchingOlder = false;
     this.hasMoreOlder = true;
+    this.isSyncingLatest = false;
+    this._onVisibilityChange = null;
     this.countdownInterval = null;
     this.lastTickPrice = null;
     this.priceBadgeEl = null;
@@ -163,6 +165,14 @@ export class PriceChart {
       }
     });
     this.resizeObserver.observe(this.container);
+
+    // Auto-heal candle gaps when returning from another browser tab or window
+    this._onVisibilityChange = () => {
+      if (!document.hidden && this.chart && this.hasData) {
+        this.syncLatestCandles();
+      }
+    };
+    document.addEventListener("visibilitychange", this._onVisibilityChange);
   }
 
   async load(timeframe = "M1") {
@@ -299,6 +309,64 @@ export class PriceChart {
     }
   }
 
+  async syncLatestCandles() {
+    if (this.isSyncingLatest || !this.series || !this.chart || !this.hasData) return;
+    this.isSyncingLatest = true;
+    const reqTf = this.currentTf;
+
+    try {
+      const data = await api(`/api/candles?tf=${encodeURIComponent(reqTf)}&limit=300`);
+      if (this.currentTf !== reqTf || !this.series || !this.chart) return;
+      if (!data || !data.candles || !data.candles.length) return;
+
+      const formatted = data.candles
+        .map((c) => ({
+          time: Number(c.time),
+          open: Number(c.open),
+          high: Number(c.high),
+          low: Number(c.low),
+          close: Number(c.close),
+        }))
+        .sort((a, b) => a.time - b.time);
+
+      const map = new Map();
+      for (const b of this.bars) {
+        map.set(b.time, b);
+      }
+      for (const b of formatted) {
+        map.set(b.time, b);
+      }
+
+      const merged = Array.from(map.values()).sort((a, b) => a.time - b.time);
+      const prevLen = this.bars.length;
+      this.bars = merged;
+
+      const currentRange = this.chart.timeScale().getVisibleLogicalRange();
+      this.series.setData(merged);
+      if (currentRange && currentRange.to < prevLen - 5) {
+        // User was inspecting older historical bars; preserve scroll view offset
+        this.chart.timeScale().setVisibleLogicalRange(currentRange);
+      }
+
+      this.currentBar = merged.length ? { ...merged[merged.length - 1] } : null;
+      if (this.currentBar && this.lastTickPrice != null) {
+        this.currentBar.close = this.lastTickPrice;
+        this.currentBar.high = Math.max(this.currentBar.high, this.lastTickPrice);
+        this.currentBar.low = Math.min(this.currentBar.low, this.lastTickPrice);
+        try {
+          this.series.update(this.currentBar);
+        } catch {
+          /* time ordering guard */
+        }
+      }
+      this._updatePriceCountdownBadge();
+    } catch (err) {
+      console.warn("Failed to sync latest candles:", err);
+    } finally {
+      this.isSyncingLatest = false;
+    }
+  }
+
   pushTick(bid, ask, ts) {
     if (!this.series || !bid) return;
     const price = Number(bid.toFixed(2));
@@ -322,6 +390,12 @@ export class PriceChart {
     }
 
     if (barTime > this.currentBar.time) {
+      const gapSec = barTime - this.currentBar.time;
+      // If gap is >= 2 periods, intermediate candles were missed while tab was backgrounded!
+      if (gapSec >= 2 * tfSec) {
+        this.syncLatestCandles();
+      }
+
       // New bar
       this.currentBar = {
         time: barTime,
@@ -526,6 +600,10 @@ export class PriceChart {
     if (this.resizeObserver) {
       this.resizeObserver.disconnect();
       this.resizeObserver = null;
+    }
+    if (this._onVisibilityChange) {
+      document.removeEventListener("visibilitychange", this._onVisibilityChange);
+      this._onVisibilityChange = null;
     }
     if (this.chart) {
       this.chart.remove();
