@@ -453,17 +453,35 @@ class Runtime:
             "state": self.orchestrator.last_state,
         }
 
+        # Identify tickets currently part of an active multi-position rescue basket
+        rescue_basket_tickets: set[int] = set()
+        for side_group in (our_buys, our_sells):
+            if len(side_group) >= 2:
+                has_pyramid = any("PYRAMID" in str(getattr(p, "comment", "") or "").upper() for p in side_group)
+                sorted_side = sorted(side_group, key=lambda p: p.time or utcnow())
+                is_long = side_group[0].is_long
+                price_ascending = (
+                    (is_long and sorted_side[-1].price_open > sorted_side[0].price_open + 0.30)
+                    or (not is_long and sorted_side[-1].price_open < sorted_side[0].price_open - 0.30)
+                )
+                if not (has_pyramid or price_ascending):
+                    for p in side_group:
+                        rescue_basket_tickets.add(p.ticket)
+
         for ticket, info in list(self._trades.items()):
             pos = live.get(ticket)
             if pos is not None:
                 info["last_price"] = pos.price_current or info["last_price"]
                 info["last_profit"] = pos.profit
                 info["volume"] = float(pos.volume)
+                ticket_ctx = dict(mgmt_context)
+                if ticket in rescue_basket_tickets:
+                    ticket_ctx["in_rescue_basket"] = True
                 try:
                     act = await self.position_manager.manage(
                         pos,
                         pos.price_current or pos.price_open,
-                        context=mgmt_context,
+                        context=ticket_ctx,
                     )
                     if any("clamp" in a or "cut" in a for a in act):
                         self.order_manager.arm_cooldown(60, reason="post_cutloss_clamp")

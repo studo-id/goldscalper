@@ -384,11 +384,31 @@ async def test_htf_reversal_shield_protects_minor_pullback() -> None:
     assert "juggler_dynamic_clamp" not in actions
     assert len(await client.positions("XAUUSD")) == 1
 
-    # But if loss reaches extreme / catastrophic clamp level (> $17.60 for 0.08 lot, e.g. -$18.50), clamp triggers
-    pos.profit = -18.50
+    # But if loss reaches extreme / catastrophic clamp level (> $28.00 for 0.08 lot, e.g. -$29.50), clamp triggers
+    pos.profit = -29.50
     actions_deep = await pm.manage(pos, price=2349.5, now=now, context={"decision": dec})
     assert "juggler_dynamic_clamp" in actions_deep
     assert await client.positions("XAUUSD") == []
+
+
+async def test_rescue_basket_bypasses_individual_clamp_and_bep() -> None:
+    client = MockMT5Client()
+    pm = PositionManager(client=client, settings=settings)
+    now = utcnow()
+    pos = await _open_position(client, sl=2335.0, volume=0.08)
+    pm.track(pos)
+    pm._states[pos.ticket].opened_at = now - timedelta(seconds=65)
+
+    # Position is in active rescue basket: Even with -$30.00 loss, individual clamp is bypassed!
+    pos.profit = -30.00
+    actions = await pm.manage(pos, price=2349.5, now=now, context={"in_rescue_basket": True})
+    assert "juggler_dynamic_clamp" not in actions
+    assert len(await client.positions("XAUUSD")) == 1
+
+    # And even with profit +$2.50, individual BEP lock is bypassed so Layer 2 stays unified
+    pos.profit = 2.50
+    actions_tp = await pm.manage(pos, price=2350.5, now=now, context={"in_rescue_basket": True})
+    assert "breakeven_locked" not in actions_tp
 
 
 async def test_instant_runner_harvest_at_any_time() -> None:

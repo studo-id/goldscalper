@@ -333,29 +333,35 @@ class PositionManager:
 
             # 5. Phase 3: Dynamic Hard Clamp & HTF Reversal Shield
             elif s.hard_loss_clamp_enabled and held >= min_hold and current_loss <= -abs(effective_clamp_usd):
-                # When HTF (H4/H1/M30/M15) strongly SUPPORTS the trade, a 9-18 pip drawdown is a minor pullback!
-                # Do NOT cut into a supporting trend — hold for reversal and allow Rescue Layer 2 to activate!
-                htf_reversal_clamp = max(14.0, round(effective_clamp_usd * 1.85, 2), round(pos.volume * 2.20 * 100.0, 2))
-                if is_htf_supporting and current_loss > -htf_reversal_clamp:
-                    # Allow trend continuation / reversal room while HTF structure is healthy
-                    pass
+                # When in an active multi-layer rescue basket, delegate loss management to manage_basket().
+                # Do NOT cut Layer 1 individually, as it breaks basket unity and strands the recovery position!
+                is_in_rescue_basket = bool(ctx.get("in_rescue_basket", False))
+                if is_in_rescue_basket:
+                    pass  # Collective basket management takes precedence
                 else:
-                    clamp_reason = "HTF_EXHAUSTED" if is_htf_supporting else htf_bias.get("verdict", "NEUTRAL")
-                    log.warning(
-                        "JUGGLER DYNAMIC CLAMP: Cutting ticket %s (%s %.2f, loss=%.2f <= -$%.2f [HTF=%s (%s), avg_win $%.2f])",
-                        pos.ticket,
-                        pos.side,
-                        pos.volume,
-                        current_loss,
-                        effective_clamp_usd if not is_htf_supporting else htf_reversal_clamp,
-                        htf_bias.get("verdict"),
-                        clamp_reason,
-                        live_avg_win,
-                    )
-                    await self.client.close_position(pos.ticket, price=price)
-                    self.untrack(pos.ticket)
-                    actions.append("juggler_dynamic_clamp")
-                    return actions
+                    # When HTF (H4/H1/M30/M15) strongly SUPPORTS the trade, a 15-30 pip pullback is healthy.
+                    # Allow up to 35 pips ($28.00 on 0.08 lot) of pullback room before declaring HTF exhausted.
+                    htf_reversal_clamp = max(16.0, round(effective_clamp_usd * 2.25, 2), round(pos.volume * 3.50 * 100.0, 2))
+                    if is_htf_supporting and current_loss > -htf_reversal_clamp:
+                        # Allow trend continuation / reversal room while HTF structure is healthy
+                        pass
+                    else:
+                        clamp_reason = "HTF_EXHAUSTED" if is_htf_supporting else htf_bias.get("verdict", "NEUTRAL")
+                        log.warning(
+                            "JUGGLER DYNAMIC CLAMP: Cutting ticket %s (%s %.2f, loss=%.2f <= -$%.2f [HTF=%s (%s), avg_win $%.2f])",
+                            pos.ticket,
+                            pos.side,
+                            pos.volume,
+                            current_loss,
+                            effective_clamp_usd if not is_htf_supporting else htf_reversal_clamp,
+                            htf_bias.get("verdict"),
+                            clamp_reason,
+                            live_avg_win,
+                        )
+                        await self.client.close_position(pos.ticket, price=price)
+                        self.untrack(pos.ticket)
+                        actions.append("juggler_dynamic_clamp")
+                        return actions
 
             # 6. Phase 4: Duration Stagnation Cut (90s - 150s with no reversal momentum)
             elif state.opened_at is not None and held >= 90:
@@ -417,19 +423,22 @@ class PositionManager:
                 return actions
 
             # 5. Dynamic Risk-Free Fast Break-Even Lock (BEP+):
-            # As soon as profit reaches >= $1.80 (or ~12 pips on scalper size), slide SL to entry + 0.10 (locks in risk-free)
-            be_sl = round(state.entry + 0.10 if pos.is_long else state.entry - 0.10, 2)
-            be_trigger_pips = getattr(s, "fast_breakeven_pips", 12.0)
-            be_trigger_usd = max(1.80, round(pos.volume * (be_trigger_pips / 100.0) * 100.0, 2))
-            if current_profit >= be_trigger_usd:
-                if pos.is_long and (pos.sl is None or pos.sl < be_sl):
-                    await self.client.modify_position(pos.ticket, sl=be_sl, tp=pos.tp)
-                    pos.sl = be_sl
-                    actions.append("breakeven_locked")
-                elif not pos.is_long and (pos.sl is None or pos.sl > be_sl):
-                    await self.client.modify_position(pos.ticket, sl=be_sl, tp=pos.tp)
-                    pos.sl = be_sl
-                    actions.append("breakeven_locked")
+            # When part of a multi-layer rescue basket, bypass individual BEP!
+            # Premature BEP exit on Layer 2 strands Layer 1 in drawdown. Basket exits collectively via manage_basket().
+            is_in_rescue_basket = bool(ctx.get("in_rescue_basket", False))
+            if not is_in_rescue_basket:
+                be_sl = round(state.entry + 0.10 if pos.is_long else state.entry - 0.10, 2)
+                be_trigger_pips = getattr(s, "fast_breakeven_pips", 12.0)
+                be_trigger_usd = max(1.80, round(pos.volume * (be_trigger_pips / 100.0) * 100.0, 2))
+                if current_profit >= be_trigger_usd:
+                    if pos.is_long and (pos.sl is None or pos.sl < be_sl):
+                        await self.client.modify_position(pos.ticket, sl=be_sl, tp=pos.tp)
+                        pos.sl = be_sl
+                        actions.append("breakeven_locked")
+                    elif not pos.is_long and (pos.sl is None or pos.sl > be_sl):
+                        await self.client.modify_position(pos.ticket, sl=be_sl, tp=pos.tp)
+                        pos.sl = be_sl
+                        actions.append("breakeven_locked")
 
             # 6. Solid Runner Harvest (Instant at Any Time):
             # When price spikes into a solid runner profit (>= $7.50 or 1.25x avg win), harvest IMMEDIATELY!
@@ -667,7 +676,23 @@ class PositionManager:
                     reached_target = True
 
         triggered = False
-        if reached_target:
+        # Basket Catastrophic Loss Guard (Collective Cutloss):
+        # If adverse move continues relentlessly and total basket net loss exceeds risk ceiling,
+        # cut ALL positions collectively. Never cut one and abandon the other!
+        if not is_pyramid and not is_hedged_basket:
+            max_basket_loss_usd = max(38.0, round(basket["total_volume"] * 2.50 * 100.0, 2))
+            if total_profit <= -max_basket_loss_usd:
+                triggered = True
+                log.warning(
+                    "BASKET CATASTROPHIC CUT: Closing all %d %s positions collectively (vol=%.2f, net_loss=%.2f <= -$%.2f)",
+                    len(positions),
+                    dominant_side,
+                    basket["total_volume"],
+                    total_profit,
+                    max_basket_loss_usd,
+                )
+
+        if reached_target and not triggered:
             if not self.settings.basket_trailing_enabled:
                 triggered = True
             else:

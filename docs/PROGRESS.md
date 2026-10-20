@@ -35,7 +35,38 @@ Aturan singkat:
 
 ---
 
-## 2026-10-20 — Hotfix Instant Runner Harvest & Eliminasi Barrier 90 Detik TP
+## 2026-10-20 — Sinkronisasi Koordinasi Rescue Basket (Kolektif) & Relaksasi Plafon HTF Reversal Clamp
+
+**Phase / Area:** Execution Layer & Position Management (`execution/position_manager.py`, `runtime.py`, `tests/test_execution.py`)
+**Status:** Done & Deployed to VPS
+
+**Yang dikerjakan**
+- **Root Cause Analysis Kasus Cutloss 61 Detik & Terlantarnya Layer 1:**
+  - Audit database & docker logs menemukan fenomena pada tiket `4900735979` (Layer 1 SELL @ 4115.72, loss -$23.47 di durasi 61s) dan `4900639917` (Layer 1 SELL @ 4121.22, loss -$23.22 di durasi 61s).
+  - Ditemukan bahwa Satpam **Layer 2 Rescue sebenarnya BERHASIL MASUK** (tiket `4900741601` dan `4900643167`).
+  - Namun terjadi **Desinkronisasi Keranjang (Basket De-synchronization)**:
+    1. Logika individual *Fast Break-Even Lock* (BEP+) menggeser SL Layer 2 ke entry setelah floating profit sedikit. Saat harga terkocok, Layer 2 tertutup sendirian dengan profit receh (+0.22 s/d +1.99).
+    2. Layer 1 tertinggal sendirian dalam drawdown 30 pips (-$23.47).
+    3. Tepat di detik ke-61 saat Grace Period M1 (60s) habis, sistem melihat Layer 1 sendirian dengan loss $\le -$17.60 (`htf_reversal_clamp`), lalu memotongnya sepihak sebagai `HTF_EXHAUSTED`.
+- **Implementasi Solusi Kuantitatif:**
+  - **Kunci Kesatuan Keranjang (Collective Rescue Resolution):**
+    - Di `runtime.py`, tiket yang menjadi bagian dari active multi-position rescue basket ditandai dengan `in_rescue_basket = True`.
+    - Di `execution/position_manager.py`: Posisi dengan `in_rescue_basket = True` **DILARANG** mengaktifkan individual Fast Break-Even Lock (mencegah Layer 2 keluar solo) dan **DILARANG** dipotong secara individual oleh Dynamic Clamp di detik 61s.
+    - Keduanya dikelola sebagai satu kesatuan oleh `manage_basket()` menuju target Average Break-Even atau aggregate net TP.
+  - **Collective Basket Catastrophic Loss Guard:**
+    - Jika tren adverse terus berlanjut tanpa rebound dan total net loss keranjang mencapai batas risiko agregat ($\ge \$38.00$ atau 25 pips per layer), seluruh keranjang dipotong bersamaan secara simultan. Tidak ada yang ditinggal sendirian.
+  - **Relaksasi Plafon HTF Reversal Clamp:**
+    - Plafon perisai tren HTF dinaikkan dari `volume * 2.20 * 100` ($17.60 / 22 pips) menjadi `volume * 3.50 * 100` ($28.00 / 35 pips pada lot 0.08) agar pullback sehat lilin M5/HTF memiliki ruang napas alami tanpa terpotong prematur.
+
+**File tersentuh**
+- `execution/position_manager.py` — Bypass individual BEP & individual clamp cut saat in_rescue_basket; relaksasi HTF reversal clamp s/d $28.00; collective basket catastrophic cut di `manage_basket()`.
+- `runtime.py` — Deteksi tiket keranjang penyelamat dan injeksi `in_rescue_basket = True` ke konteks manajemen tiket.
+- `tests/test_execution.py` — Update parameter test clamp $28.00 dan penambahan unit test `test_rescue_basket_bypasses_individual_clamp_and_bep`.
+
+**Verifikasi**
+- `pytest tests/test_execution.py` → 21 passed (100% lulus di lokal).
+- `docker exec -i gs-bot pytest tests/test_execution.py` → 16 passed di container produksi VPS.
+- SCP ke server VPS & restart container `gs-bot`. Log bot startup bersih (37 agents running, MT5 connected).
 
 **Phase / Area:** Execution Layer & Position Management (`execution/position_manager.py`, `tests/test_execution.py`)
 **Status:** Done & Deployed to VPS
