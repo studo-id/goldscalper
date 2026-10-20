@@ -318,8 +318,8 @@ async def test_watchdog_time_extension_and_invalidation_cut() -> None:
     assert "juggler_dynamic_clamp" not in actions_wick
     assert len(await client.positions("XAUUSD")) == 1
 
-    # 2a-gap. Under 60s with catastrophic loss (>= 20 pips, e.g. -$25.00 on 0.10 lot): triggers catastrophic cut!
-    pos.profit = -25.00
+    # 2a-gap. Under 60s with catastrophic loss (>= 45-50 pips, e.g. -$50.00 on 0.10 lot): triggers catastrophic cut!
+    pos.profit = -50.00
     actions_cat = await pm.manage(pos, price=2349.5, now=now, context={"decision": dec_adv})
     assert "juggler_catastrophic_gap_cut" in actions_cat
     assert await client.positions("XAUUSD") == []

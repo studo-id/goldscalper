@@ -263,9 +263,10 @@ class PositionManager:
             effective_clamp_usd = min(base_clamp, max_clamp_ceiling)
 
             # 2. Phase 0: Noise & M1 Candle Formation Grace Period (0 - 60s)
-            # Never cut on unclosed M1 candle wicks (< 60s) unless runaway flash crash / catastrophic gap (>= 20-25 pips / $14+)
+            # Strictly PROTECT unclosed M1 candle wicks (< 60s). Allow Rescue Layer 2 (>= 20 pips) to operate!
+            # Never cut early unless true runaway black-swan emergency gap (>= 45-50 pips / $35+)
             min_hold = getattr(s, "watchdog_min_hold_seconds", 60)
-            catastrophic_gap_usd = max(14.0, round(effective_clamp_usd * 1.80, 2), round(pos.volume * 2.00 * 100.0, 2))
+            catastrophic_gap_usd = max(35.0, round(pos.volume * 4.50 * 100.0, 2))
             if held < min_hold and current_loss > -catastrophic_gap_usd:
                 pass  # Grace period: allow 1 full M1 candle (60s) to form cleanly without wick panic
 

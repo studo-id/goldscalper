@@ -35,6 +35,26 @@ Aturan singkat:
 
 ---
 
+## 2026-10-20 — Hotfix Perlindungan Lilin M1 (0-60 Detik) & Penaikan Ambang Catastrophic Gap
+
+**Phase / Area:** Execution Layer & Position Management (`execution/position_manager.py`, `tests/test_execution.py`)
+**Status:** Done & Deployed to VPS
+
+**Yang dikerjakan**
+- **Investigasi Cutloss di Bawah 60 Detik (Tiket 4900380243 & 4900391330):**
+  - Tiket `4900380243` (durasi 22s, loss -$16.20) dan `4900391330` (durasi 33s, loss -$16.25) terpotong prematur di bawah 60 detik.
+  - Log server membuktikan pemotongan dipicu oleh sub-fitur `JUGGLER CATASTROPHIC GAP CUT` yang salah mendeteksi tarikan napas / wick lilin M1 sebagai "bencana flash crash".
+  - **Cacat Formula:** Formula lama menghitung `catastrophic_gap_usd = round(pos.volume * 2.00 * 100.0, 2)`. Untuk lot 0.08, nilai ini adalah `$16.00` yang setara hanya **20 pips ($2.00) jarak harga Gold**!
+  - Hal ini menimbulkan kontradiksi fatal: di saat harga bergerak berlawanan 20 pips (zona di mana **Layer 2 Rescue** seharusnya bersiap masuk), sistem malah panik dan memotong posisi di detik 22s dan 33s.
+- **Solusi & Penegakan Grace Period Lilin M1:**
+  - Ambang batas `catastrophic_gap_usd` dinaikkan ke level darurat bencana riil ($\ge 45-50$ pips / $\ge \$35-\$36$ pada lot 0.08) via formula `max(35.0, round(pos.volume * 4.50 * 100.0, 2))`.
+  - Tarikan napas wajar 15–25 pips pada lilin M1 tidak akan lagi memicu cutloss dini di bawah 60 detik, memberi ruang bagi 1 lilin M1 terbentuk utuh dan memungkinkan Layer 2 Rescue bekerja bila diperlukan.
+- **Pengujian & Deployment:**
+  - Memperbarui unit test di `tests/test_execution.py`.
+  - Verifikasi: Local `pytest tests/test_execution.py` (19 passed) dan VPS Docker (16 passed).
+  - Deploy file ke `/home/studo/apps/goldscalper/execution/position_manager.py` dan hot-restart `gs-bot`.
+
+
 ## 2026-10-20 — Hotfix String Mismatch HTF Reversal Shield & Analisis Dua Cutloss Beruntun
 
 **Phase / Area:** Execution Layer & Juggler Engine (`execution/position_manager.py`, `tests/test_execution.py`)
