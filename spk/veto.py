@@ -144,7 +144,24 @@ def evaluate(
                     and spk_confluence_count > spk_opposing_count
                 )
 
-                # 3. Dynamic demotion anchored to Juggler Portfolio State
+                # 3. CRITICAL ANTI-SUICIDE IN SIDEWAY REGIMES (Anti-Pucuk & Anti-Lembah):
+                # In a SIDEWAY / range-bound market, S/R boundaries are BOUNCE WALLS, NOT breakout corridors!
+                # Selling at the bottom (support floor) or buying at the top (resistance ceiling) is strictly forbidden.
+                is_sideway = (
+                    market_regime == "SIDEWAY"
+                    or sideways_mode
+                    or is_ping_pong
+                    or (state and hasattr(state, "extra") and isinstance(state.extra, dict) and state.extra.get("sideways_range"))
+                )
+                if is_sideway:
+                    boundary_name = "SUPPORT FLOOR" if direction == ACTION_SELL else "RESISTANCE CEILING"
+                    return VetoResult(
+                        hard=True,
+                        reason=f"HARD BARRIER (ANTI_SIDEWAY_TRAP): {sig.agent_id} blocked {direction} at {boundary_name} in SIDEWAY regime ({sig.reasoning})",
+                        notes=[f"{sig.agent_id}:{sig.veto}:barrier_sideway_trap"],
+                    )
+
+                # 4. Dynamic demotion anchored to Juggler Portfolio State (Trending / Breakout markets)
                 if has_clear_consensus:
                     # In Defense mode, scale penalty dynamically with drawdown
                     if daily_pnl_pct < 0.0:

@@ -342,4 +342,29 @@ def test_sr_barrier_retained_near_finish_line() -> None:
     assert "FINISH_LINE_LOCKDOWN" in (result.reason or "")
 
 
+def test_anti_sideway_trap_blocks_sell_at_support_floor() -> None:
+    # In SIDEWAY regime, selling at the bottom (support floor) is blocked as a hard barrier
+    barrier_sig = AgentSignal(
+        agent_id="Tech-SupportResistance",
+        division="technical",
+        vote=1,
+        confidence=0.80,
+        veto=VETO_SELL,
+        reasoning="price in M1 lower support zone ($4130.48), veto SELL",
+    )
+    # Even if 6 trend agents vote SELL into the floor
+    confirming_sell = [
+        AgentSignal(agent_id=f"sell_{i}", division="trend", vote=-1, confidence=0.7)
+        for i in range(6)
+    ]
+    signals = [barrier_sig] + confirming_sell
+    state = SharedState(extra={"market_regime": "SIDEWAY"})
+
+    result = evaluate(signals, state, ACTION_SELL)
+    assert result.hard is True
+    assert "ANTI_SIDEWAY_TRAP" in (result.reason or "")
+    assert "SUPPORT FLOOR" in (result.reason or "")
+
+
+
 

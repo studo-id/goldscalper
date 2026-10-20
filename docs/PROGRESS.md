@@ -35,6 +35,26 @@ Aturan singkat:
 
 ---
 
+## 2026-10-20 — Proteksi Anti-Sideway Trap (Pencegahan Sell di Lembah & Buy di Pucuk Saat Range-Bound)
+
+**Phase / Area:** SPK Veto Engine, Structure & Regime Governance (`spk/veto.py`, `tests/test_spk_veto.py`, `docs/PROGRESS.md`)
+**Status:** Done & Deployed
+
+**Yang dikerjakan:**
+1. **Analisa Anomali Eksekusi Live (Trade #4903533039):**
+   - **Observasi:** Posisi SELL 0.03 tereksekusi di harga $4,130.601, tepat di lantai support channel M5/M1 ($4,129.99 s/d $4,136.00). Harga yang sedang sideway murni selama 30 menit kemudian memantul (rebound) ke $4,132.05, memicu cutloss protektif Juggler (-$4.35).
+   - **Akar Masalah:** Logika demosi barrier sebelumnya mengizinkan konsensus SPK (voter trend-following seperti EMA/MACD) mendemosi S/R barrier ke soft penalty saat `confluence >= 5` tanpa mengecek rezim pasar. Akibatnya, pada pasar sideway di mana candle merah mendekati lantai support, trend agents salah membaca pergerakan tersebut sebagai breakdown tren dan melakukan "Sell di lembah".
+2. **Implementasi Hard Barrier Anti-Sideway Trap (`ANTI_SIDEWAY_TRAP`):**
+   - Pada `spk/veto.py`, jika rezim pasar berstatus `SIDEWAY` / range-bound / ping-pong:
+     - Batas S/R di lantai support (untuk SELL) dan di atap resistance (untuk BUY) **DILARANG KERAS DIDEMOSI** (`hard=True`).
+     - Alasan veto: `HARD BARRIER (ANTI_SIDEWAY_TRAP): {sig.agent_id} blocked {direction} at {SUPPORT FLOOR / RESISTANCE CEILING} in SIDEWAY regime`.
+     - Sebaliknya, sinyal pembalikan arah (BUY pantulan di dasar support atau SELL penolakan di atap resistance) **DIIZINKAN PENUH** untuk menangkap profit mean-reversion range scalper.
+     - Demosi barrier hanya diizinkan pada rezim ekspansi tren (`TRENDING_BEAR` / `TRENDING_BULL`).
+3. **Unit Testing:**
+   - Menambahkan unit test `test_anti_sideway_trap_blocks_sell_at_support_floor()` di `tests/test_spk_veto.py`. Seluruh 40 unit test passed bersih.
+
+---
+
 ## 2026-10-20 — Kalibrasi Dinamis S/R Barrier & Confidence Floor Mengacu Portfolio & Target Harian (The Juggler & BizDev Directives)
 
 **Phase / Area:** SPK Veto Engine, Orchestrator, Settings (`spk/veto.py`, `agents/orchestrator.py`, `config/settings.py`, `tests/test_spk_veto.py`, `docs/QUANT_FINENG_BIZDEV_SPEC.md`)
