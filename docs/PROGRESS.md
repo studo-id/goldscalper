@@ -35,6 +35,36 @@ Aturan singkat:
 
 ---
 
+## 2026-10-20 — Cockpit URL Tab Parameter & Recent Trades Auto-Hydration Fix
+
+**Phase / Area:** Frontend Cockpit, Router & Navigation (`frontend/js/app.js`, `frontend/js/agents.js`)
+**Status:** Done
+
+**Yang dikerjakan**
+- **Fix Recent Trades Initial Empty State:**
+  - Sebelumnya, saat user membuka/merefresh halaman di tab `Recent Trades`, `tradesBody()` merender empty state karena data API belum selesai di-fetch, dan fungsi `cockpit.patch()` tidak pernah meng-update `#trades-table-wrap`.
+  - Menambahkan auto-hydration di `cockpit.patch()`: mendeteksi perubahan `recentKey` atau keberadaan loading/empty placeholder, lalu me-render ulang `tradesBody()` begitu response `/api/trades` selesai di-fetch tanpa perlu klik tab lain.
+  - Menambahkan skeleton loading shimmer yang elegan saat initial state `state.trades?.recent === undefined` sesuai aturan Anti-AI-Slop & Strict Borderless UI.
+- **Direct Tab URL Parameter & Navigation Sync:**
+  - Menambahkan `COCKPIT_SUBTABS` (`positions`, `trace`, `trades`, `recent`, `votes`, `open`, dll.) dan sinkronisasi dua arah dengan parameter URL `tab` (e.g. `?tab=trades`, `?tab=positions`, `?tab=trace`).
+  - Memperbarui router `resolveInitialTab()` dan `go()` di `app.js` agar URL parameter `?tab=trades` langsung membuka Cockpit dengan tab Recent Trades aktif dan tidak tertimpa/terhapus.
+  - Mendukung browser navigation `popstate` dan `hashchange` bolak-balik antar subtab secara instan tanpa reload penuh.
+
+**File tersentuh**
+- `frontend/js/agents.js` — Ekspor `COCKPIT_SUBTABS`, update reading param `tab`/`subtab`, update click handler URL param, tambahkan live update `#trades-table-wrap` di `patch()`, dan skeleton shimmer di `tradesBody()`.
+- `frontend/js/app.js` — Import `COCKPIT_SUBTABS`, perbaiki `resolveInitialTab()`, `go()`, serta handler `popstate`/`hashchange` untuk sinkronisasi subtab Cockpit.
+- `docs/PROGRESS.md` — Pencatatan worklog kronologis.
+
+**Verifikasi**
+- `node -c frontend/js/agents.js; node -c frontend/js/app.js` → Syntax Clean.
+- `pytest tests/test_spk_veto.py tests/test_wave_engine.py tests/test_market_regime.py` → 36 passed.
+- `scp frontend/js/agents.js frontend/js/app.js studo@100.114.150.48:...` → File tersinkronisasi ke server VPS.
+
+**Catatan / Next**
+- Tab URL parameter `?tab=trades`, `?tab=positions`, dan `?tab=trace` kini dapat di-bookmark / direct link secara penuh.
+
+---
+
 ## 2026-10-20 — Data-Driven Wave Engine & Smart Broken-Wave Cooldown
 
 **Phase / Area:** Core, SPK Veto & Execution (`core/wave_engine.py`, `runtime.py`, `spk/veto.py`, `tests/test_wave_engine.py`)

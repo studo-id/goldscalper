@@ -45,6 +45,19 @@ function getTfVote(tf, votes = []) {
   return match ? (match.vote || 0) : 0;
 }
 
+export const COCKPIT_SUBTABS = {
+  positions: "positions",
+  pos: "positions",
+  open: "positions",
+  trace: "trace",
+  votes: "trace",
+  spk: "trace",
+  trades: "trades",
+  recent: "trades",
+  closed: "trades",
+  history: "trades",
+};
+
 /* ============================================================== cockpit */
 export const cockpit = {
   title: "Cockpit",
@@ -57,15 +70,17 @@ export const cockpit = {
   ticketLot: 0.10,
   _lastCycles: -1,
   _lastOpenKey: "",
+  _lastRecentKey: "",
 
   async enter() {
     const urlTf = window.getUrlParam?.("tf");
     if (urlTf && TF_LIST.includes(urlTf.toUpperCase())) {
       this.activeTf = urlTf.toUpperCase();
     }
-    const urlSubtab = window.getUrlParam?.("subtab");
-    if (urlSubtab && ["positions", "trace", "trades"].includes(urlSubtab.toLowerCase())) {
-      this.activeTab = urlSubtab.toLowerCase();
+    const urlSubtab = window.getUrlParam?.("tab") || window.getUrlParam?.("subtab");
+    if (urlSubtab) {
+      const mapped = COCKPIT_SUBTABS[urlSubtab.toLowerCase()];
+      if (mapped) this.activeTab = mapped;
     }
     try {
       const [pos, spk, tradesRes] = await Promise.all([
@@ -101,9 +116,10 @@ export const cockpit = {
     if (urlTf && TF_LIST.includes(urlTf.toUpperCase())) {
       this.activeTf = urlTf.toUpperCase();
     }
-    const urlSubtab = window.getUrlParam?.("subtab");
-    if (urlSubtab && ["positions", "trace", "trades"].includes(urlSubtab.toLowerCase())) {
-      this.activeTab = urlSubtab.toLowerCase();
+    const urlSubtab = window.getUrlParam?.("tab") || window.getUrlParam?.("subtab");
+    if (urlSubtab) {
+      const mapped = COCKPIT_SUBTABS[urlSubtab.toLowerCase()];
+      if (mapped) this.activeTab = mapped;
     }
 
     const t = state.telemetry;
@@ -357,7 +373,7 @@ export const cockpit = {
         const tab = btn.dataset.tab;
         if (!tab || tab === this.activeTab) return;
         this.activeTab = tab;
-        window.updateUrlParams?.({ subtab: tab });
+        window.updateUrlParams?.({ tab: tab, subtab: null });
         root.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
         root.querySelectorAll(".tab-pane").forEach((p) => p.classList.remove("active"));
         btn.classList.add("active");
@@ -371,7 +387,11 @@ export const cockpit = {
           if (wrap) wrap.innerHTML = traceBody(state.decision);
         } else if (tab === "trades") {
           const wrap = root.querySelector("#trades-table-wrap");
-          if (wrap) wrap.innerHTML = tradesBody();
+          if (wrap) {
+            wrap.innerHTML = tradesBody();
+            const recent = state.trades?.recent || [];
+            this._lastRecentKey = `${recent.length}:${recent[0]?.ticket || recent[0]?.id || ""}:${state.trades?.loadingMore || false}`;
+          }
         }
         if (pane) hydrateIcons(pane);
       });
@@ -605,6 +625,21 @@ export const cockpit = {
       }
     }
 
+    // Live recent closed trades table (auto-refresh on initial load and trade completion)
+    const tradesWrap = root.querySelector("#trades-table-wrap");
+    if (tradesWrap && this.activeTab === "trades") {
+      const recent = state.trades?.recent;
+      if (recent) {
+        const recentKey = `${recent.length}:${recent[0]?.ticket || recent[0]?.id || ""}:${state.trades?.loadingMore || false}`;
+        const hasEmptyOrSkeleton = Boolean(tradesWrap.querySelector(".state") || tradesWrap.querySelector(".skeleton"));
+        if (recentKey !== this._lastRecentKey || (hasEmptyOrSkeleton && recent.length > 0)) {
+          this._lastRecentKey = recentKey;
+          tradesWrap.innerHTML = tradesBody();
+          hydrateIcons(tradesWrap);
+        }
+      }
+    }
+
     // Risk card
     const rVeto = root.querySelector("#r-veto");
     if (rVeto) {
@@ -829,7 +864,22 @@ function traceBody(d) {
 }
 
 function tradesBody() {
-  const recent = state.trades?.recent || [];
+  const recent = state.trades?.recent;
+  if (recent === undefined) {
+    // Initial loading skeleton state while API is in-flight (Strict Borderless UI)
+    return `<div class="table-scroll"><table class="data">
+      <thead><tr>
+        <th class="col-ticket">Ticket</th><th class="col-side">Side</th><th class="col-size">Size</th>
+        <th class="col-entry">Entry</th><th class="col-exit">Exit</th><th class="col-pnl">PnL</th>
+        <th class="col-dur">Duration</th><th class="col-time">Closed</th>
+      </tr></thead>
+      <tbody>
+        ${[1, 2, 3, 4, 5].map(() => `<tr>
+          <td colspan="8" style="padding: 10px 14px; border: none !important;"><div class="skeleton sk-line" style="margin:0; width: 100%; height: 18px; border: none !important;"></div></td>
+        </tr>`).join("")}
+      </tbody>
+    </table></div>`;
+  }
   if (!recent.length) {
     return emptyState("No recent trades", "Closed trade executions will be displayed here.", "inbox");
   }

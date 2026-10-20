@@ -2,7 +2,7 @@
 // collapsible sidebar, session popover, and service worker.
 
 import { esc, fmtMoney, fmtPrice, hydrateIcons, icon, openModal, toast } from "./components.js?v=20261014_17";
-import { VIEWS } from "./agents.js?v=20261014_17";
+import { COCKPIT_SUBTABS, VIEWS } from "./agents.js?v=20261014_17";
 import {
   api,
   connectTelemetry,
@@ -62,12 +62,35 @@ function resolveInitialTab() {
       state.token = tokenParam;
     }
 
-    // 2. Tab / View param support: ?tab=agents or ?view=portfolio
+    // 2. Cockpit Subtab direct access: ?tab=trades or ?tab=recent or ?subtab=trades
     const tabParam = (url.searchParams.get("tab") || url.searchParams.get("view") || "").toLowerCase();
+    const subtabParam = (url.searchParams.get("subtab") || "").toLowerCase();
+
+    if (tabParam && COCKPIT_SUBTABS && COCKPIT_SUBTABS[tabParam]) {
+      if (VIEWS.cockpit) {
+        VIEWS.cockpit.activeTab = COCKPIT_SUBTABS[tabParam];
+      }
+      return "cockpit";
+    }
+
+    if (subtabParam && COCKPIT_SUBTABS && COCKPIT_SUBTABS[subtabParam]) {
+      if (VIEWS.cockpit) {
+        VIEWS.cockpit.activeTab = COCKPIT_SUBTABS[subtabParam];
+      }
+      return "cockpit";
+    }
+
+    // 3. Main Views: ?tab=agents or ?view=portfolio
     if (tabParam && VIEWS[tabParam]) return tabParam;
 
-    // 3. Hash support: #agents or #divisions
+    // 4. Hash support: #agents or #trades or #divisions
     const hash = window.location.hash.replace(/^#/, "").toLowerCase();
+    if (hash && COCKPIT_SUBTABS && COCKPIT_SUBTABS[hash]) {
+      if (VIEWS.cockpit) {
+        VIEWS.cockpit.activeTab = COCKPIT_SUBTABS[hash];
+      }
+      return "cockpit";
+    }
     if (hash && VIEWS[hash]) return hash;
   } catch (e) {
     console.debug("resolveInitialTab error:", e);
@@ -122,7 +145,18 @@ async function go(key, syncUrl = true) {
   current = key;
   window.scrollTo({ top: 0, left: 0, behavior: "instant" });
   if (syncUrl) {
-    updateUrlParams({ tab: key });
+    if (key === "cockpit") {
+      const curTab = getUrlParam("tab")?.toLowerCase();
+      const curSubtab = getUrlParam("subtab")?.toLowerCase();
+      const targetTab = (curTab && COCKPIT_SUBTABS?.[curTab])
+        ? COCKPIT_SUBTABS[curTab]
+        : (curSubtab && COCKPIT_SUBTABS?.[curSubtab])
+          ? COCKPIT_SUBTABS[curSubtab]
+          : (VIEWS.cockpit?.activeTab || "positions");
+      updateUrlParams({ tab: targetTab, subtab: null });
+    } else {
+      updateUrlParams({ tab: key, subtab: null });
+    }
   }
   markNav();
   closeMobileMenu();
@@ -771,12 +805,32 @@ function wire() {
 
   window.addEventListener("popstate", () => {
     const target = resolveInitialTab();
-    if (target !== current) go(target, false);
+    if (target !== current) {
+      go(target, false);
+    } else if (target === "cockpit") {
+      const tabParam = (getUrlParam("tab") || getUrlParam("subtab") || "").toLowerCase();
+      const mapped = COCKPIT_SUBTABS?.[tabParam];
+      if (mapped && mapped !== VIEWS.cockpit?.activeTab) {
+        VIEWS.cockpit.activeTab = mapped;
+        const root = document.getElementById("view");
+        if (root) VIEWS.cockpit.render(root);
+      }
+    }
   });
 
   window.addEventListener("hashchange", () => {
     const target = resolveInitialTab();
-    if (target !== current) go(target, false);
+    if (target !== current) {
+      go(target, false);
+    } else if (target === "cockpit") {
+      const tabParam = (getUrlParam("tab") || getUrlParam("subtab") || "").toLowerCase();
+      const mapped = COCKPIT_SUBTABS?.[tabParam];
+      if (mapped && mapped !== VIEWS.cockpit?.activeTab) {
+        VIEWS.cockpit.activeTab = mapped;
+        const root = document.getElementById("view");
+        if (root) VIEWS.cockpit.render(root);
+      }
+    }
   });
 }
 
