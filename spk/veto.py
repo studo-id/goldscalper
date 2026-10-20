@@ -246,18 +246,24 @@ def evaluate(
         else:
             return VetoResult(hard=True, reason="H4 supply/demand block touch against direction")
 
-    # Sideway Caution: Soft confidence penalty at channel boundaries without hard deadlock
+    # Sideway Caution: Dynamic confidence penalty at channel boundaries based on HTF alignment
     if sideways_mode:
         sr_res = state.extra.get("sr_resistance")
         sr_sup = state.extra.get("sr_support")
         cur_p = state.bid or state.last_price()
         if cur_p is not None:
-            if direction == ACTION_BUY and sr_res is not None and cur_p >= sr_res:
-                result.confidence_delta -= 0.25
-                result.notes.append(f"Sideway resistance ceiling caution (${cur_p:.1f} >= ${sr_res:.1f})")
-            elif direction == ACTION_SELL and sr_sup is not None and cur_p <= sr_sup:
-                result.confidence_delta -= 0.25
-                result.notes.append(f"Sideway support floor caution (${cur_p:.1f} <= ${sr_sup:.1f})")
+            h1_v = state.flag("h1_vote")
+            htf_opp = (
+                (direction == ACTION_BUY and h1_v is not None and h1_v < 0)
+                or (direction == ACTION_SELL and h1_v is not None and h1_v > 0)
+            )
+            dyn_penalty = 0.40 if htf_opp else 0.20
+            if direction == ACTION_BUY and sr_res is not None and cur_p >= (sr_res - 0.50):
+                result.confidence_delta -= dyn_penalty
+                result.notes.append(f"Sideway resistance ceiling caution (${cur_p:.1f} >= ${sr_res:.1f}, htf_opp={htf_opp}) -{dyn_penalty:.2f}")
+            elif direction == ACTION_SELL and sr_sup is not None and cur_p <= (sr_sup + 0.50):
+                result.confidence_delta -= dyn_penalty
+                result.notes.append(f"Sideway support floor caution (${cur_p:.1f} <= ${sr_sup:.1f}, htf_opp={htf_opp}) -{dyn_penalty:.2f}")
 
     # --- Soft vetoes -------------------------------------------------------
     # Dynamic Soft Veto Penalty Multiplier based on Portfolio Drawdown

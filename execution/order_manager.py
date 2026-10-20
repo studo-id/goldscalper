@@ -125,6 +125,14 @@ class OrderManager:
         exec_volume = float(decision.size)
         order_comment = f"SPK {decision.action} conf={decision.confidence:.2f}"
 
+        # Dynamic Data-Driven Boundary Gate (Anti-Buying the Top & Anti-Selling the Bottom):
+        # Dynamically evaluates M5 candle structure, cluster S/R, and confirmed breakout/breakdown.
+        # Bypasses block ONLY IF data confirms valid breakout/breakdown or active trending regime.
+        blocked_sr, sr_reason = self._check_dynamic_sr_boundary(decision.action, entry, state)
+        if blocked_sr:
+            log.warning("DYNAMIC DATA GATE: %s", sr_reason)
+            return ExecutionResult(ok=False, reason=sr_reason)
+
         # Multi-Entry & Smart Rescue Recovery Evaluation
         if open_count > 0:
             if not self.settings.multi_entry_enabled:
@@ -437,69 +445,82 @@ class OrderManager:
         except Exception as exc:  # noqa: BLE001
             log.debug("alert failed: %s", exc)
 
-    def _check_opposite_sr_barrier(
+    def _check_dynamic_sr_boundary(
         self, action: str, entry: float | None, state: SharedState | None
     ) -> tuple[bool, str]:
-        """Verify whether an opposite hedge order is entering into an S/R boundary.
+        """Verify whether an order is entering into an S/R boundary.
 
-        Permits entry ONLY IF there is a confirmed higher-timeframe trend breakdown/breakout.
-        Blocks opposite SELL at support floor and opposite BUY at resistance ceiling during
-        contested / sideways / bounce conditions.
+        Permits entry ONLY IF there is a confirmed higher-timeframe trend breakdown/breakout
+        or active trending regime.
+        Blocks SELL at support floor and BUY at resistance ceiling during
+        contested / sideways / bounce conditions without confirmed breakout data.
         """
         if entry is None or state is None:
             return False, ""
 
         m5_bars = state.frames.get("M5")
-        if not m5_bars or len(m5_bars) < 10:
+        if not m5_bars or len(m5_bars) < 5:
             return False, ""
+
+        def _val(b: Any, field_name: str) -> float:
+            if isinstance(b, dict):
+                return float(b.get(field_name, 0.0) or 0.0)
+            return float(getattr(b, field_name, 0.0) or 0.0)
 
         lookback = min(20, len(m5_bars))
         recent_bars = m5_bars[-lookback:]
-        body_lows = [min(b.open, b.close) for b in recent_bars]
-        body_highs = [max(b.open, b.close) for b in recent_bars]
-
-        cluster_support = min(body_lows)
-        cluster_resistance = max(body_highs)
+        cluster_support = min(_val(b, "low") for b in recent_bars)
+        cluster_resistance = max(_val(b, "high") for b in recent_bars)
 
         sr_sup = state.extra.get("sr_support")
         sr_res = state.extra.get("sr_resistance")
-        if sr_sup and sr_sup > cluster_support:
-            cluster_support = sr_sup
-        if sr_res and sr_res < cluster_resistance:
-            cluster_resistance = sr_res
+        if sr_sup and float(sr_sup) > cluster_support:
+            cluster_support = float(sr_sup)
+        if sr_res and float(sr_res) < cluster_resistance:
+            cluster_resistance = float(sr_res)
 
         sr_buffer = 1.50  # $1.50 USD / 15 pips on Gold
+        market_regime = str(state.extra.get("market_regime", "") or "").upper()
 
-        is_lh_ll = (m5_bars[-1].high < m5_bars[-2].high < m5_bars[-3].high) if len(m5_bars) >= 3 else False
-        is_hh_hl = (m5_bars[-1].low > m5_bars[-2].low > m5_bars[-3].low) if len(m5_bars) >= 3 else False
+        last_b = m5_bars[-1]
+        prev_b = m5_bars[-2] if len(m5_bars) >= 2 else last_b
+        prev2_b = m5_bars[-3] if len(m5_bars) >= 3 else prev_b
+
+        is_lh_ll = (_val(last_b, "high") < _val(prev_b, "high") < _val(prev2_b, "high")) if len(m5_bars) >= 3 else False
+        is_hh_hl = (_val(last_b, "low") > _val(prev_b, "low") > _val(prev2_b, "low")) if len(m5_bars) >= 3 else False
         struct_event = getattr(state, "extra", {}).get("struct_event") or ("LH_LL" if is_lh_ll else ("HH_HL" if is_hh_hl else "RANGE"))
 
-        last_m5_close = m5_bars[-1].close
+        last_m5_close = _val(last_b, "close")
 
         if action == ACTION_SELL:
-            dist_to_support = entry - cluster_support
-            if -0.30 <= dist_to_support <= sr_buffer:
+            # Entering within +/- 15 pips of support floor
+            if (cluster_support - sr_buffer) <= entry <= (cluster_support + sr_buffer):
                 is_clean_breakdown = (
-                    last_m5_close < (cluster_support - 0.50)
-                    and struct_event == "LH_LL"
+                    (last_m5_close < (cluster_support - 0.30) and struct_event == "LH_LL")
+                    or "TRENDING_BEAR" in market_regime
                 )
                 if not is_clean_breakdown:
+                    dist_to_support = entry - cluster_support
                     return (
                         True,
-                        f"Blocked opposite SELL near support floor (${cluster_support:.2f}, dist={dist_to_support:.2f}) without confirmed breakdown",
+                        f"Blocked SELL near support floor (${cluster_support:.2f}, dist={dist_to_support:.2f}) without confirmed M5 breakdown",
                     )
 
         elif action == ACTION_BUY:
-            dist_to_res = cluster_resistance - entry
-            if -0.30 <= dist_to_res <= sr_buffer:
+            # Entering within +/- 15 pips of resistance ceiling
+            if (cluster_resistance - sr_buffer) <= entry <= (cluster_resistance + sr_buffer):
                 is_clean_breakout = (
-                    last_m5_close > (cluster_resistance + 0.50)
-                    and struct_event == "HH_HL"
+                    (last_m5_close > (cluster_resistance + 0.30) and struct_event == "HH_HL")
+                    or "TRENDING_BULL" in market_regime
                 )
                 if not is_clean_breakout:
+                    dist_to_res = cluster_resistance - entry
                     return (
                         True,
-                        f"Blocked opposite BUY near resistance ceiling (${cluster_resistance:.2f}, dist={dist_to_res:.2f}) without confirmed breakout",
+                        f"Blocked BUY near resistance ceiling (${cluster_resistance:.2f}, dist={dist_to_res:.2f}) without confirmed M5 breakout",
                     )
 
         return False, ""
+
+    # Backward compatibility alias
+    _check_opposite_sr_barrier = _check_dynamic_sr_boundary

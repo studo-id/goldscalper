@@ -5,13 +5,13 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 from agents.base import AgentSignal
-from agents.state import UTC, utcnow
+from agents.state import UTC, SharedState, utcnow
 from config.settings import settings
 from core.mt5_connector import SIDE_BUY, MockMT5Client, OrderRequest, Position
 from core.notifier import Notifier
 from execution.order_manager import OrderManager
 from execution.position_manager import PositionManager
-from spk.decision import ACTION_BUY, STRENGTH_STRONG, SPKDecision
+from spk.decision import ACTION_BUY, ACTION_SELL, STRENGTH_STRONG, SPKDecision
 
 
 class FakeTradeRepo:
@@ -426,6 +426,51 @@ async def test_instant_runner_harvest_at_any_time() -> None:
     # Runner harvest executes immediately without waiting for 90s!
     assert "juggler_runner_harvest" in actions
     assert await client.positions("XAUUSD") == []
+
+
+async def test_dynamic_data_driven_sr_boundary_gate() -> None:
+    client = MockMT5Client()
+    om = OrderManager(client=client, settings=settings)
+
+    # Mock M5 candles forming a range between 4115.0 and 4125.0
+    mock_m5 = []
+    for i in range(10):
+        mock_m5.append({
+            "open": 4120.0,
+            "high": 4125.0,
+            "low": 4115.0,
+            "close": 4121.0,
+        })
+    state = SharedState(
+        symbol="XAUUSDm",
+        frames={"M5": mock_m5},
+        extra={"market_regime": "SIDEWAY", "struct_event": "RANGE"},
+    )
+
+    # 1. Buying right near resistance (4124.90, dist=0.10) without confirmed breakout MUST be blocked by data
+    dec_buy_top = SPKDecision(action=ACTION_BUY, score=2.5, confidence=0.7, size=0.08, entry=4124.90)
+    res_buy = await om.execute(dec_buy_top, state=state)
+    assert res_buy is not None and not res_buy.ok
+    assert "Blocked BUY near resistance ceiling" in (res_buy.reason or "")
+
+    # 2. Selling right near support (4115.20, dist=0.20) without confirmed breakdown MUST be blocked by data
+    dec_sell_bottom = SPKDecision(action=ACTION_SELL, score=-2.5, confidence=0.7, size=0.08, entry=4115.20)
+    res_sell = await om.execute(dec_sell_bottom, state=state)
+    assert res_sell is not None and not res_sell.ok
+    assert "Blocked SELL near support floor" in (res_sell.reason or "")
+
+    # 3. But if data shows clean breakout (last candle closed at 4126.0 > 4125.30 with HH_HL), BUY is permitted!
+    mock_m5_breakout = list(mock_m5)
+    mock_m5_breakout[-1] = {"open": 4124.0, "high": 4127.0, "low": 4123.0, "close": 4126.5}
+    state_breakout = SharedState(
+        symbol="XAUUSDm",
+        frames={"M5": mock_m5_breakout},
+        extra={"market_regime": "SIDEWAY", "struct_event": "HH_HL"},
+    )
+    res_breakout = await om.execute(dec_buy_top, state=state_breakout)
+    assert res_breakout is not None and res_breakout.ok
+    assert res_breakout.ticket is not None
+
 
 
 

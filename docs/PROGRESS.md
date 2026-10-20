@@ -35,7 +35,30 @@ Aturan singkat:
 
 ---
 
-## 2026-10-20 — Sinkronisasi Koordinasi Rescue Basket (Kolektif) & Relaksasi Plafon HTF Reversal Clamp
+## 2026-10-20 — Dynamic Data-Driven S/R Boundary Gate (Anti-Top BUY & Anti-Bottom SELL)
+
+**Phase / Area:** Execution Layer (`execution/order_manager.py`), SPK Veto (`spk/veto.py`), Unit Tests (`tests/test_execution.py`)
+**Status:** Done & Deployed to VPS
+
+**Yang dikerjakan**
+- **Analisis Kejadian Entry BUY di Pucuk Resistance ($4,126.09 — Tiket 4900802215):**
+  - Bot baru startup langsung membuka BUY di harga 4,126.09 (pucuk channel sideway).
+  - 65 detik kemudian harga memantul turun, dan posisi dipotong oleh *Juggler HTF Breakdown Cut* (-$5.50) karena M15, M30, H4 menolak Buy.
+  - **Ditemukan Celah:**
+    1. Guard S/R sebelumnya hanya dipasang di blok Multi-Entry / Rescue Layer (`open_count > 0`), sehingga gerbang `Initial Entry` (`open_count == 0`) sama sekali tidak menyaring zona S/R.
+    2. Batas channel sideway di `spk/veto.py` hanya berupa soft penalty flat (`-0.25`), yang mudah ditembus oleh dorongan momentum sesaat M1.
+- **Implementasi Solusi Dinamis Berbasis Data (Bukan Hard-Veto Buta):**
+  - **Dynamic S/R Boundary Gate di `OrderManager.execute()`:**
+    - Mengevaluasi data riil 20 lilin M5 untuk memetakan cluster fraktal Resistance (highs) dan Support (lows).
+    - **Pemeriksaan Dinamis BUY:** Jika harga berada di zona plafon Resistance ($\pm 15$ pips), BUY **DITOLAK KECUALI** data membuktikan terjadi *Confirmed Breakout* (`last_m5_close > cluster_resistance + 0.30` dengan struktur `HH_HL`) atau regime `TRENDING_BULL`.
+    - **Pemeriksaan Dinamis SELL:** Jika harga berada di zona lantai Support ($\pm 15$ pips), SELL **DITOLAK KECUALI** data membuktikan terjadi *Confirmed Breakdown* (`last_m5_close < cluster_support - 0.30` dengan struktur `LH_LL`) atau regime `TRENDING_BEAR`.
+    - Berlaku 100% simetris untuk Initial Entry maupun subsequent entries.
+  - **Dynamic Sideway Veto Alignment di `spk/veto.py`:**
+    - Penalti batas channel disesuaikan secara dinamis: jika posisi berada di batas ekstrem channel dan arah HTF menentang (`htf_opp == True`), penalti dinaikkan dinamis ke `-0.40`; jika HTF selaras, penalti tetap terkalibrasi `-0.20`.
+- **Verifikasi & Deployment:**
+  - Menambahkan unit test `test_dynamic_data_driven_sr_boundary_gate` di `tests/test_execution.py`.
+  - Berhasil lulus uji unit test lokal (49 passed) dan container produksi VPS.
+  - Deploy file `execution/order_manager.py` dan `spk/veto.py` ke VPS, lalu restart `gs-bot`. Bot aktif normal dan cooldown safe.
 
 **Phase / Area:** Execution Layer & Position Management (`execution/position_manager.py`, `runtime.py`, `tests/test_execution.py`)
 **Status:** Done & Deployed to VPS
