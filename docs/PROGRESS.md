@@ -35,7 +35,30 @@ Aturan singkat:
 
 ---
 
-## 2026-10-20 — Removal of Reversal Confluence Auto-Flip (Eliminating Falling-Knife Trap at S/R)
+## 2026-10-20 — 4-Stage Market Lifecycle & Regime Engine (Adaptive Trend Riding & Exhaustion Guard)
+
+**Phase / Area:** Core & Technical Division (`core/market_regime.py`, `agents/divisions/technical/agents.py`, `spk/veto.py`, `runtime.py`)
+**Status:** Done
+
+**Yang dikerjakan**
+- **Mengakhiri Kebutaan Rezim Tren vs Sideway (The Rolling Window Trap Elimination):**
+  1. **Investigasi Kejadian Live (12:07 - 12:19 WIB):**
+     - Ditemukan alasan faktual mengapa bot pendamping (AcengGold) panen 12 trade beruntun (+98.30 USC) saat tren turun, sedangkan GoldScalper membeku/bengong selama 15 menit.
+     - Penyebab: Aturan `dead_zone_max_span = 12.00` mengecek jendela 20 bar M1 ($9.69) dan secara buta mengira pasar sedang sideway, padahal pasar sedang trending deras. Akibatnya, `VETO_ALL` memblokir area tengah 40% dan `VETO_SELL` memblokir area bawah 30%—sehingga sistem tidak bisa SELL di mana pun.
+  2. **Implementasi Market Lifecycle Engine (`core/market_regime.py`):**
+     - Membangun modul klasifikasi siklus pasar 4-fase:
+       - **Fase 1 (SIDEWAY):** Slope EMA M5 mendatar, tidak ada displacement. **Dead-Zone 30/40/30 aktif ketat** (anti-chop mean-reversion).
+       - **Fase 2 (TRENDING EXPANSION):** Slope EMA M5 tajam, terjadi BOS atau multi-bar progression. **Dead-Zone DINONAKTIFKAN TOTAL**, larangan S/R di arah tren dicabut, mengizinkan *trend continuation scalping* (gaya AcengGold).
+       - **Fase 3 (TREND EXHAUSTION):** Harga teregang $> 2.3\times \text{ATR}$ dari mean, RSI ekstrem (< 28 atau > 72) dengan sumbu penolakan. **Dilarang keras follow-trend di harga pucuk/dasar ekstrem** (*Anti-FOMO Guard*).
+       - **Fase 4 (REVERSAL / CHoCH):** Terjadi Change of Character menembus swing berlawanan dengan displacement lilin terkonfirmasi sebelum diizinkan *counter-trend trade*.
+  3. **Veto Override & Dynamic Post-Win Cooldown:**
+     - Di `spk/veto.py`: S/R barrier diturunkan menjadi soft penalty saat pasar berada dalam fase `TRENDING` searah order.
+     - Di `runtime.py`: Pangkas cooldown paska-profit dari 60s/45s menjadi **10 detik** saat rezim `TRENDING` agar bot dapat melakukan *wave-chaining* berkelanjutan.
+  4. **Pengujian Unit:**
+     - Penambahan test suite `tests/test_market_regime.py`.
+     - 59/59 unit tests lulus (100% Green).
+
+---
 
 **Phase / Area:** Agent Orchestrator & Execution Discipline (`agents/orchestrator.py`)
 **Status:** Done

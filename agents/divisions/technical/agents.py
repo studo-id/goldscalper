@@ -17,6 +17,16 @@ from agents.divisions.technical.base import TechnicalAgent
 from agents.state import VETO_ALL, VETO_BUY, VETO_SELL, VOTE_BUY, VOTE_NEUTRAL, VOTE_SELL, SharedState
 from config.settings import Settings, settings as default_settings
 from core.indicators import atr, bollinger, ema_last, ema_series, macd, mean, rsi_last, wick_stats
+from core.market_regime import (
+    REGIME_EXHAUSTION_BEAR,
+    REGIME_EXHAUSTION_BULL,
+    REGIME_REVERSAL_BEAR,
+    REGIME_REVERSAL_BULL,
+    REGIME_SIDEWAY,
+    REGIME_TRENDING_BEAR,
+    REGIME_TRENDING_BULL,
+    detect_market_regime,
+)
 
 
 class Trend(TechnicalAgent):
@@ -214,27 +224,97 @@ class SupportResistance(TechnicalAgent):
                     state.extra["m1_pos_pct"] = pos_pct
                     state.extra["m1_confirm_range_usd"] = buf
 
-                # 1. Confirmed M1 Breakout / Breakdown (Outside confirmation buffer):
-                if close < (m1_support - buf):
-                    meta["micro_sr_event"] = "CONFIRMED_MICRO_BREAKDOWN"
+                # Determine Market Lifecycle Stage & Regime (4-Phase Engine)
+                regime = detect_market_regime(state, close)
+                meta["market_regime"] = regime.regime
+                meta["regime_desc"] = regime.description
+                if hasattr(state, "extra") and isinstance(state.extra, dict):
+                    state.extra["market_regime"] = regime.regime
+                    state.extra["market_regime_info"] = regime.to_dict()
+
+                # 1. Confirmed M1 Breakout / Breakdown OR Active Trend Expansion (Stage 2)
+                if close < (m1_support - buf) or (regime.is_trending and regime.direction == "SELL" and pos_pct <= 0.40):
+                    meta["micro_sr_event"] = "CONFIRMED_MICRO_BREAKDOWN" if close < (m1_support - buf) else "TREND_BEAR_EXPANSION"
                     return self.signal(
                         VOTE_SELL,
-                        0.80,
-                        f"confirmed M1 breakdown below micro-support (${m1_support:.2f} - ${buf:.2f})",
+                        0.85 if regime.is_trending else 0.80,
+                        f"bearish expansion below micro-support (${m1_support:.2f}) [{regime.description}]",
                         meta,
+                        veto=VETO_BUY,  # Strictly forbid buying against active downtrend!
                     )
-                if close > (m1_resistance + buf):
-                    meta["micro_sr_event"] = "CONFIRMED_MICRO_BREAKOUT"
+                if close > (m1_resistance + buf) or (regime.is_trending and regime.direction == "BUY" and pos_pct >= 0.60):
+                    meta["micro_sr_event"] = "CONFIRMED_MICRO_BREAKOUT" if close > (m1_resistance + buf) else "TREND_BULL_EXPANSION"
+                    return self.signal(
+                        VOTE_BUY,
+                        0.85 if regime.is_trending else 0.80,
+                        f"bullish expansion above micro-resistance (${m1_resistance:.2f}) [{regime.description}]",
+                        meta,
+                        veto=VETO_SELL,  # Strictly forbid selling against active uptrend!
+                    )
+
+                # 2. Stage 3: Trend Exhaustion (Overextended - Banned from chasing bottom/top)
+                if regime.regime == REGIME_EXHAUSTION_BEAR:
+                    meta["micro_sr_event"] = "EXHAUSTION_BEAR_FLOOR"
+                    return self.signal(
+                        VOTE_NEUTRAL,
+                        0.75,
+                        f"bearish trend exhausted at floor (${close:.2f}), veto SELL ({regime.description})",
+                        meta,
+                        veto=VETO_SELL,
+                    )
+                if regime.regime == REGIME_EXHAUSTION_BULL:
+                    meta["micro_sr_event"] = "EXHAUSTION_BULL_CEILING"
+                    return self.signal(
+                        VOTE_NEUTRAL,
+                        0.75,
+                        f"bullish trend exhausted at ceiling (${close:.2f}), veto BUY ({regime.description})",
+                        meta,
+                        veto=VETO_BUY,
+                    )
+
+                # 3. Stage 4: Confirmed Reversal / CHoCH
+                if regime.regime == REGIME_REVERSAL_BULL:
+                    meta["micro_sr_event"] = "REVERSAL_CHOCH_BULL"
                     return self.signal(
                         VOTE_BUY,
                         0.80,
-                        f"confirmed M1 breakout above micro-resistance (${m1_resistance:.2f} + ${buf:.2f})",
+                        f"confirmed bullish CHoCH reversal from floor (${close:.2f}), veto SELL",
                         meta,
+                        veto=VETO_SELL,
+                    )
+                if regime.regime == REGIME_REVERSAL_BEAR:
+                    meta["micro_sr_event"] = "REVERSAL_CHOCH_BEAR"
+                    return self.signal(
+                        VOTE_SELL,
+                        0.80,
+                        f"confirmed bearish CHoCH reversal from ceiling (${close:.2f}), veto BUY",
+                        meta,
+                        veto=VETO_BUY,
                     )
 
-                # 2. Lower 30% (Support Pong Zone):
-                # Price is at or near M1 local support floor:
-                # Strictly VETO SELL to prevent selling at the bottom! BUY only!
+                # 4. Active Trend Continuation in Mid Channel (When Trending, Dead-Zone is SHUT OFF!)
+                if regime.is_trending and regime.allow_trend_continuation:
+                    if regime.direction == "SELL":
+                        meta["micro_sr_event"] = "TREND_CONTINUATION_SELL"
+                        return self.signal(
+                            VOTE_SELL,
+                            0.75,
+                            f"trend continuation SELL in mid-channel ({regime.description})",
+                            meta,
+                            veto=VETO_BUY,  # Disallow buying against the wave
+                        )
+                    if regime.direction == "BUY":
+                        meta["micro_sr_event"] = "TREND_CONTINUATION_BUY"
+                        return self.signal(
+                            VOTE_BUY,
+                            0.75,
+                            f"trend continuation BUY in mid-channel ({regime.description})",
+                            meta,
+                            veto=VETO_SELL,  # Disallow selling against the wave
+                        )
+
+                # 5. Stage 1: Sideway Murni (Range Consolidation)
+                # Lower 30% (Support Pong Zone):
                 if pos_pct <= 0.30 or (m1_support - buf) <= close <= (m1_support + buf):
                     meta["micro_sr_event"] = "AT_MICRO_SUPPORT"
                     return self.signal(
@@ -245,9 +325,7 @@ class SupportResistance(TechnicalAgent):
                         veto=VETO_SELL,
                     )
 
-                # 3. Upper 30% (Resistance Ping Zone):
-                # Price is at or near M1 local resistance ceiling:
-                # Strictly VETO BUY to prevent buying at the peak! SELL only!
+                # Upper 30% (Resistance Ping Zone):
                 if pos_pct >= 0.70 or (m1_resistance - buf) <= close <= (m1_resistance + buf):
                     meta["micro_sr_event"] = "AT_MICRO_RESISTANCE"
                     return self.signal(
@@ -258,10 +336,8 @@ class SupportResistance(TechnicalAgent):
                         veto=VETO_BUY,
                     )
 
-                # 4. Middle 40% (Dead / No-Trade Zone):
-                # When inside consolidating/normal M1 range (span <= dead_zone_max_span):
-                # Strictly VETO ALL ENTRIES (both BUY and SELL) to prevent chop whipsaw!
-                if self.dead_zone_enabled and (m1_span <= self.dead_zone_max_span or sideways):
+                # Middle 40% (Dead / No-Trade Zone) — ONLY in Genuine Sideway!
+                if self.dead_zone_enabled and regime.allow_dead_zone:
                     meta["micro_sr_event"] = "M1_MID_DEAD_ZONE"
                     if hasattr(state, "extra") and isinstance(state.extra, dict):
                         state.extra["m1_dead_zone"] = True

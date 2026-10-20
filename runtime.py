@@ -460,7 +460,9 @@ class Runtime:
                     if any("clamp" in a or "cut" in a for a in act):
                         self.order_manager.arm_cooldown(60, reason="post_cutloss_clamp")
                     elif any("harvest" in a or "tp" in a for a in act):
-                        self.order_manager.arm_cooldown(45, reason="post_profit_harvest")
+                        regime = (self.orchestrator.last_state.extra.get("market_regime") if (self.orchestrator.last_state and self.orchestrator.last_state.extra) else "SIDEWAY")
+                        win_cd = 10 if "TRENDING" in str(regime) else 25
+                        self.order_manager.arm_cooldown(win_cd, reason="post_profit_harvest")
                 except Exception as exc:  # noqa: BLE001
                     log.warning("position manage failed (%s): %s", ticket, exc)
             else:
@@ -469,11 +471,17 @@ class Runtime:
     async def _finalize_closed(self, ticket: int, info: dict[str, Any]) -> None:
         self.position_manager.untrack(ticket)
         self._trades.pop(ticket, None)
-        if not self._trades:
-            self.order_manager.arm_cooldown(60, reason="post_trade_close")
 
         pnl = float(info.get("last_profit", 0.0) or 0.0)
         vol = float(info.get("volume", 0.01) or 0.01)
+
+        if not self._trades:
+            if pnl > 0:
+                regime = (self.orchestrator.last_state.extra.get("market_regime") if (self.orchestrator.last_state and self.orchestrator.last_state.extra) else "SIDEWAY")
+                win_cd = 10 if "TRENDING" in str(regime) else 25
+                self.order_manager.arm_cooldown(win_cd, reason="post_win_chaining")
+            else:
+                self.order_manager.arm_cooldown(60, reason="post_trade_close")
 
         # Update daily telemetry and BizDev trackers
         self._daily_realized_pnl += pnl

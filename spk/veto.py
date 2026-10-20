@@ -96,6 +96,20 @@ def evaluate(
                     state.extra["active_sr_barrier_agent"] = sig.agent_id
                     state.extra["active_sr_barrier_reason"] = sig.reasoning
 
+                # Juggler Trend Continuation Override:
+                # If Market Lifecycle is in active TRENDING expansion in this trade direction,
+                # the S/R boundary is a continuation/breakout path, not a hard blocking barrier!
+                market_regime = state.extra.get("market_regime") if (state and hasattr(state, "extra") and isinstance(state.extra, dict)) else None
+                if (
+                    (direction == ACTION_SELL and market_regime == "TRENDING_BEAR")
+                    or (direction == ACTION_BUY and market_regime == "TRENDING_BULL")
+                ):
+                    result.confidence_delta -= 0.10
+                    result.notes.append(
+                        f"Barrier {sig.agent_id} demoted for active trend continuation ({market_regime})"
+                    )
+                    continue
+
                 # Juggler High-Confluence Breakout Override:
                 # If SPK consensus has overwhelming multi-agent agreement (>= 18 confirming agents)
                 # AND portfolio health is safe (daily_pnl_pct >= -1.0%),
