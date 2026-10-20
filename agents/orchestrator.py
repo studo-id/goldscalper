@@ -137,7 +137,19 @@ class Orchestrator:
                 confidence += pnl_drag
             decision.confidence = round(max(0.0, min(1.0, confidence)), 4)
 
-            # Note: If trade is blocked by hard veto (such as S/R barrier), we respect the veto
+            # Minimum Confidence Floor Protection (Anti-deadlock / Low-Conviction Execution):
+            # A trade decision must have at least 0.40 confidence (or 0.50 during Drawdown Defense).
+            # If multi-agent division is deeply conflicted or penalized, it MUST NOT open speculative trades!
+            daily_pnl_pct = float(getattr(state, "daily_pnl_pct", 0.0) or 0.0) if state else 0.0
+            min_conf_floor = 0.50 if daily_pnl_pct < 0.0 else 0.40
+            if decision.confidence < min_conf_floor and not decision.hard_veto:
+                decision.hard_veto = True
+                decision.veto_reason = (
+                    f"LOW CONFIDENCE: {decision.confidence:.2f} < {min_conf_floor:.2f} "
+                    f"(multi-agent consensus too weak/conflicted in {'DEFENSE' if daily_pnl_pct < 0 else 'NORMAL'} mode)"
+                )
+
+            # Note: If trade is blocked by hard veto (such as S/R barrier or low confidence), we respect the veto
             # and maintain HOLD discipline. We strictly DO NOT auto-flip the trade direction against
             # multi-agent SPK consensus to prevent catching falling knives or rocket spikes.
 

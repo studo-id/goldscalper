@@ -1009,6 +1009,57 @@ textarea {
   animation: shimmer 1.5s infinite;
 }
 
+/* TradingView-style Price & Candle Countdown Badge Overlay */
+.tv-price-countdown-badge {
+  position: absolute;
+  right: 0;
+  transform: translateY(-50%);
+  z-index: 10;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 6px;
+  border-radius: 2px;
+  border: none !important;
+  user-select: none;
+  pointer-events: none;
+  min-width: 58px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+  transition: top 0.05s ease-out, background-color 0.15s ease;
+}
+
+.tv-price-countdown-badge.bullish {
+  background-color: #3fb68b !important;
+  color: #ffffff !important;
+}
+
+.tv-price-countdown-badge.bearish {
+  background-color: #e5534b !important;
+  color: #ffffff !important;
+}
+
+.tv-price-countdown-badge .tv-badge-price {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: 0.2px;
+  color: #ffffff;
+  font-variant-numeric: tabular-nums;
+}
+
+.tv-price-countdown-badge .tv-badge-countdown {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: 0.3px;
+  color: rgba(255, 255, 255, 0.92);
+  margin-top: 1px;
+  font-variant-numeric: tabular-nums;
+}
+
 /* Cockpit Tabs below Chart */
 .cockpit-tabs-panel {
   display: flex;

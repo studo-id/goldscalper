@@ -257,8 +257,20 @@ def test_session_hard_cutoff_1530_utc() -> None:
     assert result.hard is True
     assert "SESSION_HARD_CUTOFF_1530_UTC" in (result.reason or "")
 
-
-
-
+def test_extreme_valuation_boundary_hard_veto() -> None:
+    # An analysis agent signaling VETO_SELL because market is at EXTREME_DISCOUNT (support floor)
+    # Even during sideways_mode, this MUST remain a hard veto!
+    sig = AgentSignal(
+        agent_id="TF-D1-Macro",
+        division="timeframe",
+        vote=0,
+        confidence=0.8,
+        veto=VETO_SELL,
+        reasoning="Market is at EXTREME_DISCOUNT support boundary",
+    )
+    state = SharedState(extra={"market_regime": "SIDEWAY"})
+    result = evaluate([sig], state, ACTION_SELL)
+    assert result.hard is True
+    assert "EXTREME BOUNDARY" in (result.reason or "")
 
 

@@ -35,6 +35,44 @@ Aturan singkat:
 
 ---
 
+## 2026-10-20 — Proteksi Sideway Ekstrim & TradingView-Style Realtime Candle Countdown Badge
+
+**Phase / Area:** SPK Orchestrator, Veto Engine, Order Manager, Frontend Realtime Chart (`frontend/js/chart.js`, `frontend/css/cockpit.css`)
+**Status:** Done
+
+**Yang dikerjakan:**
+1. **Trading Logic Protection di Pasar Sideway (Anti-Sell Bottom & Anti-Buy Top):**
+   - Mengatasi isu eksekusi SELL spekulatif di dasar channel support (mis. 4,114.48) yang confidence-nya hanya 9.5%.
+   - `agents/orchestrator.py`: Menambahkan sistem pengaman `min_confidence_floor` (0.40 pada normal/growth mode, 0.50 pada drawdown defense mode). Trade marjinal atau hasil konsensus yang terbelah otomatis di-hard veto dengan keterangan `LOW CONFIDENCE`.
+   - `spk/veto.py`: Mengunci analisis `EXTREME_DISCOUNT` (support floor) dan `EXTREME_PREMIUM` (resistance ceiling) agar **TETAP MENJADI HARD VETO** dan tidak pernah di-demote ke soft penalty saat kondisi sideways / ping-pong.
+   - `execution/order_manager.py`: Menerapkan dynamic `sr_buffer` berskala 25% dari tinggi rentang channel (hingga $3.50 / 35 pips). Memblokir sell di kuartil bawah tanpa konfirmasi M5 close breakdown. Memperbaiki kalkulasi cluster support/resistance agar berbasis `prior_bars` sebelum candle aktif.
+2. **Polis UI — Real-time Candle Close Countdown Badge di Price Axis (TradingView Style):**
+   - Menghilangkan badge 1-baris native LightweightCharts (`lastValueVisible: false`).
+   - Menambahkan overlay badge 2-baris `.tv-price-countdown-badge` di sumbu harga vertikal kanan (price scale axis):
+     - Baris 1: Current Live Price (misal `4124.17`).
+     - Baris 2: Hitungan mundur sisa waktu lilin (countdown) per detik (misal `00:54` pada M1, `04:12` pada M5, `00:45:10` pada H1).
+     - Berdetak realtime per 1 detik via `setInterval` dan sinkron dengan pergerakan tick baru serta scroll/zoom.
+     - Pewarnaan otomatis dinamis: Hijau Bullish (`#3fb68b`) dan Merah Bearish (`#e5534b`).
+   - `frontend/css/cockpit.css`: Menerapkan Strict Borderless UI Directive (`border: none !important`), font `JetBrains Mono` tabular-nums tajam.
+   - Menaikkan cache-busting query parameter ke `?v=20261020_02` di `frontend/index.html`, `frontend/js/app.js`, dan `frontend/js/agents.js`.
+
+**File tersentuh:**
+- `agents/orchestrator.py` — Pengaman batas minimum confidence (0.40 / 0.50)
+- `spk/veto.py` — Penolakan demote untuk veto `EXTREME_DISCOUNT` dan `EXTREME_PREMIUM`
+- `execution/order_manager.py` — Dynamic S/R buffer berbasis rentang channel & prior bars cluster
+- `frontend/js/chart.js` — Implementasi ticker countdown 1 detik dan overlay badge 2-baris
+- `frontend/css/cockpit.css` — Styling borderless `.tv-price-countdown-badge`
+- `frontend/js/agents.js`, `frontend/js/app.js`, `frontend/index.html` — Cache busting ke `v=20261020_02`
+- `tests/test_orchestrator.py`, `tests/test_spk_veto.py`, `tests/test_execution.py` — Unit tests
+
+**Verifikasi:**
+- `pytest tests/test_execution.py tests/test_orchestrator.py tests/test_spk_veto.py tests/test_risk_division.py tests/test_fundamental_division.py tests/test_technical_division.py -v` → 124 passed in 0.52s.
+
+**Catatan / Next:**
+- Deploy pembaruan file frontend dan backend ke server VPS dan verifikasi container berjalan lancar.
+
+---
+
 ## 2026-10-20 — Real-Time Streaming Elapsed Timer pada Tabel Open Positions (Tanpa Kata 'ago')
 
 **Phase / Area:** Frontend UI (`frontend/js/components.js`, `frontend/js/agents.js`, `frontend/js/app.js`, `frontend/index.html`)

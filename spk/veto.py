@@ -135,6 +135,21 @@ def evaluate(
             is_tf_agent = (sig.division == "timeframe" or sig.agent_id.startswith("TF-"))
             is_analysis_agent = sig.division in ("structure", "technical", "timeframe", "fundamental")
 
+            # CRITICAL ANTI-SUICIDE PROTECTION: Extreme Discount / Premium Valuation
+            # In sideways markets or range conditions, selling at extreme discount (support floor)
+            # or buying at extreme premium (resistance ceiling) is fatal and must NEVER be demoted!
+            reason_upper = (sig.reasoning or "").upper()
+            is_extreme_location = (
+                (direction == ACTION_SELL and ("DISCOUNT" in reason_upper or "EXTREME_DISCOUNT" in reason_upper))
+                or (direction == ACTION_BUY and ("PREMIUM" in reason_upper or "EXTREME_PREMIUM" in reason_upper))
+            )
+            if is_extreme_location:
+                return VetoResult(
+                    hard=True,
+                    reason=f"EXTREME BOUNDARY: {sig.agent_id} blocked {direction} at unfavorable valuation ({sig.reasoning or sig.veto})",
+                    notes=[f"{sig.agent_id}:{sig.veto}:extreme_valuation"],
+                )
+
             # 1. During sideways/ping-pong conditions, HTF deadlock, or for analysis conflicts:
             # demote directional vetoes to soft confidence penalties so 37-agent consensus can scalp.
             if is_analysis_agent and (htf_deadlock or is_ping_pong or sideways_mode):

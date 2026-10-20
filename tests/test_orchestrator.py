@@ -100,3 +100,21 @@ async def test_start_and_stop() -> None:
     await orch.stop()
     assert task.done()
     assert orch.cycle_count >= 1
+
+
+async def test_low_confidence_gets_hard_veto() -> None:
+    # High enough weight for SPK BUY action, but soft veto drops confidence below 0.40
+    reg = _registry(
+        DummyAgent("low1", division="trend", vote=VOTE_BUY, confidence=0.55, weight=3.0)
+    )
+
+    def _state() -> SharedState:
+        return SharedState(spread_points=100, session="asia", extra={"h1_vote": -1})
+
+    orch = Orchestrator(reg, bus=MemoryBus(), state_builder=_state, broadcast=False)
+    decision = await orch.run_cycle()
+    assert decision.action == ACTION_BUY
+    assert decision.confidence < 0.40
+    assert decision.hard_veto is True
+    assert decision.veto_reason is not None and "LOW CONFIDENCE" in decision.veto_reason
+

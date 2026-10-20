@@ -469,8 +469,9 @@ class OrderManager:
 
         lookback = min(20, len(m5_bars))
         recent_bars = m5_bars[-lookback:]
-        cluster_support = min(_val(b, "low") for b in recent_bars)
-        cluster_resistance = max(_val(b, "high") for b in recent_bars)
+        prior_bars = recent_bars[:-1] if len(recent_bars) > 1 else recent_bars
+        cluster_support = min(_val(b, "low") for b in prior_bars)
+        cluster_resistance = max(_val(b, "high") for b in prior_bars)
 
         sr_sup = state.extra.get("sr_support")
         sr_res = state.extra.get("sr_resistance")
@@ -479,7 +480,9 @@ class OrderManager:
         if sr_res and float(sr_res) < cluster_resistance:
             cluster_resistance = float(sr_res)
 
-        sr_buffer = 1.50  # $1.50 USD / 15 pips on Gold
+        range_height = max(1.0, cluster_resistance - cluster_support)
+        # Dynamic buffer: at least $1.50 (15 pips) up to 25% of the range (capped at $3.50 / 35 pips)
+        sr_buffer = max(1.50, min(3.50, round(range_height * 0.25, 2)))
         market_regime = str(state.extra.get("market_regime", "") or "").upper()
 
         last_b = m5_bars[-1]
@@ -493,8 +496,8 @@ class OrderManager:
         last_m5_close = _val(last_b, "close")
 
         if action == ACTION_SELL:
-            # Entering within +/- 15 pips of support floor
-            if (cluster_support - sr_buffer) <= entry <= (cluster_support + sr_buffer):
+            # Entering within dynamic buffer of support floor (or lower quartile of sideways range)
+            if (cluster_support - 1.0) <= entry <= (cluster_support + sr_buffer):
                 is_clean_breakdown = (
                     (last_m5_close < (cluster_support - 0.30) and struct_event == "LH_LL")
                     or "TRENDING_BEAR" in market_regime
@@ -503,12 +506,12 @@ class OrderManager:
                     dist_to_support = entry - cluster_support
                     return (
                         True,
-                        f"Blocked SELL near support floor (${cluster_support:.2f}, dist={dist_to_support:.2f}) without confirmed M5 breakdown",
+                        f"Blocked SELL near support floor (${cluster_support:.2f}, dist={dist_to_support:.2f}, buffer={sr_buffer:.2f}) without confirmed M5 breakdown",
                     )
 
         elif action == ACTION_BUY:
-            # Entering within +/- 15 pips of resistance ceiling
-            if (cluster_resistance - sr_buffer) <= entry <= (cluster_resistance + sr_buffer):
+            # Entering within dynamic buffer of resistance ceiling (or upper quartile of sideways range)
+            if (cluster_resistance - sr_buffer) <= entry <= (cluster_resistance + 1.0):
                 is_clean_breakout = (
                     (last_m5_close > (cluster_resistance + 0.30) and struct_event == "HH_HL")
                     or "TRENDING_BULL" in market_regime
@@ -517,7 +520,7 @@ class OrderManager:
                     dist_to_res = cluster_resistance - entry
                     return (
                         True,
-                        f"Blocked BUY near resistance ceiling (${cluster_resistance:.2f}, dist={dist_to_res:.2f}) without confirmed M5 breakout",
+                        f"Blocked BUY near resistance ceiling (${cluster_resistance:.2f}, dist={dist_to_res:.2f}, buffer={sr_buffer:.2f}) without confirmed M5 breakout",
                     )
 
         return False, ""

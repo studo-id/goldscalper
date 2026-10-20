@@ -30,6 +30,9 @@ export class PriceChart {
     this.bars = [];
     this.isFetchingOlder = false;
     this.hasMoreOlder = true;
+    this.countdownInterval = null;
+    this.lastTickPrice = null;
+    this.priceBadgeEl = null;
 
     this.init();
   }
@@ -108,12 +111,26 @@ export class PriceChart {
       borderVisible: false,
       wickUpColor: "#3fb68b",
       wickDownColor: "#e5534b",
+      priceLineVisible: true,
+      lastValueVisible: false, // Replaced by TradingView 2-line real-time price & countdown badge
       priceFormat: {
         type: "price",
         precision: 2,
         minMove: 0.01,
       },
     });
+
+    // Create TradingView-style 2-line badge overlay
+    this.priceBadgeEl = document.createElement("div");
+    this.priceBadgeEl.className = "tv-price-countdown-badge";
+    this.priceBadgeEl.innerHTML = `
+      <span class="tv-badge-price">--</span>
+      <span class="tv-badge-countdown">--:--</span>
+    `;
+    this.container.appendChild(this.priceBadgeEl);
+
+    // Start 1-second countdown ticker for per-second candle time updates
+    this._startCountdownTicker();
 
     if (this.onCrosshairMove) {
       this.chart.subscribeCrosshairMove((param) => {
@@ -123,11 +140,13 @@ export class PriceChart {
         }
         const data = param.seriesData.get(this.series);
         this.onCrosshairMove(data || null);
+        this._updatePriceCountdownBadge();
       });
     }
 
-    // Subscribe to visible range changes for dynamic backward paging
+    // Subscribe to visible range changes for dynamic backward paging & badge repositioning
     this.chart.timeScale().subscribeVisibleLogicalRangeChange((newRange) => {
+      this._updatePriceCountdownBadge();
       if (!newRange || this.isLoading || this.isFetchingOlder || !this.hasMoreOlder) return;
       // When scrolling near the left boundary of existing candles
       if (newRange.from < 20) {
@@ -140,6 +159,7 @@ export class PriceChart {
       const { width, height } = entries[0].contentRect;
       if (width > 0 && height > 0) {
         this.chart.applyOptions({ width, height });
+        this._updatePriceCountdownBadge();
       }
     });
     this.resizeObserver.observe(this.container);
@@ -191,10 +211,12 @@ export class PriceChart {
       this.bars = uniqueBars;
       this.series.setData(uniqueBars);
       this.currentBar = uniqueBars.length ? { ...uniqueBars[uniqueBars.length - 1] } : null;
+      this.lastTickPrice = this.currentBar ? this.currentBar.close : null;
       this.chart.timeScale().fitContent();
 
       // Update positions
       this.updatePositions();
+      this._updatePriceCountdownBadge();
     } catch (err) {
       console.warn("Failed to load candles:", err);
       this.renderLoading(false);
@@ -269,6 +291,7 @@ export class PriceChart {
       if (addedCount < 15) {
         this.hasMoreOlder = false;
       }
+      this._updatePriceCountdownBadge();
     } catch (err) {
       console.warn("Failed to load older candles:", err);
     } finally {
@@ -279,6 +302,7 @@ export class PriceChart {
   pushTick(bid, ask, ts) {
     if (!this.series || !bid) return;
     const price = Number(bid.toFixed(2));
+    this.lastTickPrice = price;
     const tfSec = TF_SECONDS[this.currentTf] || 60;
     const nowSec = ts ? Math.floor(new Date(ts).getTime() / 1000) : Math.floor(Date.now() / 1000);
     const barTime = nowSec - (nowSec % tfSec);
@@ -293,6 +317,7 @@ export class PriceChart {
       };
       this.bars.push(this.currentBar);
       this.series.update(this.currentBar);
+      this._updatePriceCountdownBadge();
       return;
     }
 
@@ -322,6 +347,83 @@ export class PriceChart {
       // Time ordering guard
       console.debug("chart update skipped:", e);
     }
+    this._updatePriceCountdownBadge();
+  }
+
+  _startCountdownTicker() {
+    this._stopCountdownTicker();
+    this.countdownInterval = setInterval(() => {
+      this._updatePriceCountdownBadge();
+    }, 1000);
+  }
+
+  _stopCountdownTicker() {
+    if (this.countdownInterval) {
+      clearInterval(this.countdownInterval);
+      this.countdownInterval = null;
+    }
+  }
+
+  _updatePriceCountdownBadge() {
+    if (!this.series || !this.chart || !this.priceBadgeEl) return;
+
+    let currentPrice = this.lastTickPrice;
+    if (currentPrice == null && this.currentBar) {
+      currentPrice = this.currentBar.close;
+    }
+    if (currentPrice == null && this.bars && this.bars.length) {
+      currentPrice = this.bars[this.bars.length - 1].close;
+    }
+
+    if (currentPrice == null || isNaN(currentPrice)) {
+      this.priceBadgeEl.style.display = "none";
+      return;
+    }
+
+    const coord = this.series.priceToCoordinate(Number(currentPrice));
+    const containerHeight = this.container.clientHeight || 340;
+
+    if (coord === null || isNaN(coord) || coord < 0 || coord > containerHeight) {
+      this.priceBadgeEl.style.display = "none";
+      return;
+    }
+
+    // Calculate real-time candle close countdown for active timeframe
+    const tfSec = TF_SECONDS[this.currentTf] || 60;
+    const nowSec = Math.floor(Date.now() / 1000);
+    const elapsedInBar = nowSec % tfSec;
+    const remainingSec = Math.max(0, tfSec - elapsedInBar);
+
+    // Format countdown: mm:ss for M1-M30, hh:mm:ss for H1-D1
+    let countdownStr = "";
+    if (tfSec < 3600) {
+      const m = Math.floor(remainingSec / 60);
+      const s = remainingSec % 60;
+      countdownStr = `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+    } else {
+      const h = Math.floor(remainingSec / 3600);
+      const m = Math.floor((remainingSec % 3600) / 60);
+      const s = remainingSec % 60;
+      countdownStr = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+    }
+
+    const openPrice = this.currentBar ? this.currentBar.open : currentPrice;
+    const isBullish = currentPrice >= openPrice;
+    this.priceBadgeEl.className = `tv-price-countdown-badge ${isBullish ? "bullish" : "bearish"}`;
+
+    const priceText = Number(currentPrice).toFixed(2);
+    const priceEl = this.priceBadgeEl.querySelector(".tv-badge-price");
+    const countEl = this.priceBadgeEl.querySelector(".tv-badge-countdown");
+
+    if (priceEl && priceEl.textContent !== priceText) {
+      priceEl.textContent = priceText;
+    }
+    if (countEl && countEl.textContent !== countdownStr) {
+      countEl.textContent = countdownStr;
+    }
+
+    this.priceBadgeEl.style.top = `${Math.round(coord)}px`;
+    this.priceBadgeEl.style.display = "flex";
   }
 
   setPositions(positions = []) {
@@ -416,6 +518,11 @@ export class PriceChart {
   }
 
   destroy() {
+    this._stopCountdownTicker();
+    if (this.priceBadgeEl) {
+      this.priceBadgeEl.remove();
+      this.priceBadgeEl = null;
+    }
     if (this.resizeObserver) {
       this.resizeObserver.disconnect();
       this.resizeObserver = null;
@@ -428,3 +535,4 @@ export class PriceChart {
     this.container.innerHTML = "";
   }
 }
+
