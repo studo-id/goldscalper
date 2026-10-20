@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
+from agents.base import AgentSignal
 from agents.state import UTC, utcnow
 from config.settings import settings
 from core.mt5_connector import SIDE_BUY, MockMT5Client, OrderRequest, Position
@@ -358,5 +359,36 @@ async def test_fast_breakeven_lock() -> None:
     assert "breakeven_locked" in actions
     refreshed = (await client.positions("XAUUSD"))[0]
     assert refreshed.sl == round(pos.price_open + 0.10, 2)  # Locked into entry + 0.10
+
+
+async def test_htf_reversal_shield_protects_minor_pullback() -> None:
+    client = MockMT5Client()
+    pm = PositionManager(client=client, settings=settings)
+    now = utcnow()
+    pos = await _open_position(client, sl=2335.0, volume=0.08)
+    pm.track(pos)
+
+    # Position held 65s (> 60s min_hold), floating loss is -$11.50 (exceeds $7.00 clamp)
+    pm._states[pos.ticket].opened_at = now - timedelta(seconds=65)
+    pos.profit = -11.50
+
+    # HTF (H1, H4, M30) is strongly supporting the trade
+    htf_supporting_signals = [
+        AgentSignal(agent_id="TF-H1-Regime", division="timeframe", vote=1, confidence=0.8),
+        AgentSignal(agent_id="TF-H4-Structure", division="timeframe", vote=1, confidence=0.8),
+    ]
+    dec = SPKDecision(action=ACTION_BUY, score=3.0, confidence=0.8, votes=htf_supporting_signals)
+
+    actions = await pm.manage(pos, price=2349.5, now=now, context={"decision": dec})
+    # HTF Reversal Shield protects the position from premature $7.00 clamp cut!
+    assert "juggler_dynamic_clamp" not in actions
+    assert len(await client.positions("XAUUSD")) == 1
+
+    # But if loss reaches extreme / catastrophic clamp level (> $17.60 for 0.08 lot, e.g. -$18.50), clamp triggers
+    pos.profit = -18.50
+    actions_deep = await pm.manage(pos, price=2349.5, now=now, context={"decision": dec})
+    assert "juggler_dynamic_clamp" in actions_deep
+    assert await client.positions("XAUUSD") == []
+
 
 

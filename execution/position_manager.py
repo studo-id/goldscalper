@@ -308,10 +308,13 @@ class PositionManager:
 
             # 4. Phase 2: HTF Trend Breakdown (Early Cut — Do NOT Hope!)
             # If floating loss >= 65% of clamp AND Higher Timeframes (H4/H1/M30/M15) are actively opposing us:
-            elif (
+            is_htf_supporting = htf_bias.get("verdict") in ("SUPPORTING", "HTF_SUPPORTING")
+            is_htf_opposing = htf_bias.get("verdict") in ("OPPOSING", "HTF_OPPOSING")
+
+            if (
                 held >= min_hold
                 and current_loss <= -(effective_clamp_usd * 0.65)
-                and htf_bias["verdict"] == "HTF_OPPOSING"
+                and is_htf_opposing
             ):
                 log.warning(
                     "JUGGLER HTF BREAKDOWN CUT: Ticket %s (%s %.2f, loss=%.2f <= -$%.2f) — HTF scouts opposing: %s",
@@ -332,19 +335,19 @@ class PositionManager:
                 # When HTF (H4/H1/M30/M15) strongly SUPPORTS the trade, a 9-18 pip drawdown is a minor pullback!
                 # Do NOT cut into a supporting trend — hold for reversal and allow Rescue Layer 2 to activate!
                 htf_reversal_clamp = max(14.0, round(effective_clamp_usd * 1.85, 2), round(pos.volume * 2.20 * 100.0, 2))
-                if htf_bias["verdict"] == "HTF_SUPPORTING" and current_loss > -htf_reversal_clamp:
+                if is_htf_supporting and current_loss > -htf_reversal_clamp:
                     # Allow trend continuation / reversal room while HTF structure is healthy
                     pass
                 else:
-                    clamp_reason = "HTF_EXHAUSTED" if htf_bias["verdict"] == "HTF_SUPPORTING" else htf_bias["verdict"]
+                    clamp_reason = "HTF_EXHAUSTED" if is_htf_supporting else htf_bias.get("verdict", "NEUTRAL")
                     log.warning(
                         "JUGGLER DYNAMIC CLAMP: Cutting ticket %s (%s %.2f, loss=%.2f <= -$%.2f [HTF=%s (%s), avg_win $%.2f])",
                         pos.ticket,
                         pos.side,
                         pos.volume,
                         current_loss,
-                        effective_clamp_usd if htf_bias["verdict"] != "HTF_SUPPORTING" else htf_reversal_clamp,
-                        htf_bias["verdict"],
+                        effective_clamp_usd if not is_htf_supporting else htf_reversal_clamp,
+                        htf_bias.get("verdict"),
                         clamp_reason,
                         live_avg_win,
                     )

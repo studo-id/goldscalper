@@ -35,6 +35,36 @@ Aturan singkat:
 
 ---
 
+## 2026-10-20 — Hotfix String Mismatch HTF Reversal Shield & Analisis Dua Cutloss Beruntun
+
+**Phase / Area:** Execution Layer & Juggler Engine (`execution/position_manager.py`, `tests/test_execution.py`)
+**Status:** Done & Deployed to VPS
+
+**Yang dikerjakan**
+- **Analisis Mendalam 2 Cutloss Beruntun (Tiket 4900315971 & 4900324821):**
+  - Menginvestigasi mengapa 2 posisi SELL dipotong tepat di detik 61s dengan loss -$11.58 dan -$13.62 saat tren HTF sesungguhnya mendukung (`HTF=SUPPORTING`).
+  - Ditemukan fatal bug string comparison di `execution/position_manager.py`: fungsi `evaluate_multi_tf_watchdogs` menghasilkan `htf_bias["verdict"] = "SUPPORTING"` (tanpa prefiks `"HTF_"`), sedangkan Phase 2 dan Phase 3 mengecek `htf_bias["verdict"] == "HTF_SUPPORTING"`.
+  - Akibat bug tersebut, perbandingan selalu `False`, sehingga toleransi `htf_reversal_clamp` ($17.60 untuk 0.08 lot) diabaikan total, dan Dynamic Clamp langsung memotong posisi secara buta di detik ke-61 dengan batas -$7.00.
+  - Layer 2 Rescue tidak terpicu karena pullback harga hanya 14.5 dan 17.0 pips (di bawah `rescue_min_distance_pips = 20.0` / $2.00).
+- **Perbaikan Kode & Pengujian:**
+  - Memperbaiki pencocokan string agar mendukung format `"SUPPORTING"` maupun `"HTF_SUPPORTING"`, serta `"OPPOSING"` maupun `"HTF_OPPOSING"` menggunakan helper flags `is_htf_supporting` dan `is_htf_opposing`.
+  - Menambahkan unit test `test_htf_reversal_shield_protects_minor_pullback` di `tests/test_execution.py`.
+  - Berhasil lulus 100% (16 passed di Docker VPS, 19 passed lokal).
+- **Deploy & Hot-Restart ke VPS:**
+  - Kode disinkronkan ke `/home/studo/apps/goldscalper/execution/position_manager.py`.
+  - Container `gs-bot` di-restart dan langsung beroperasi normal (sukses mengonfirmasi chain sell wave win).
+
+**File tersentuh**
+- `execution/position_manager.py` — perbaikan perbandingan string `is_htf_supporting` & `is_htf_opposing`.
+- `tests/test_execution.py` — penambahan unit test `test_htf_reversal_shield_protects_minor_pullback`.
+- `docs/PROGRESS.md` — dokumentasi worklog.
+
+**Verifikasi**
+- Local: `pytest tests/test_execution.py` → 19 passed in 0.20s.
+- VPS Docker: `docker exec gs-bot pytest tests/test_execution.py` → 16 passed in 0.27s.
+- VPS Log: `docker logs gs-bot` → status healthy, runtime active.
+
+
 ## 2026-10-20 — Penegakan HTF Supporting Reversal Shield & Penyelarasan Rescue Layer
 
 **Phase / Area:** Execution Layer & Risk Architecture (`execution/position_manager.py`, `tests/test_execution.py`)
