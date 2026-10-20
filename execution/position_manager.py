@@ -138,13 +138,18 @@ def evaluate_multi_tf_watchdogs(pos_direction: str, context: dict[str, Any] | No
     can_extend_time = (htf_verdict == "SUPPORTING" and m5_verdict != "OPPOSING")
 
     # Invalidation alert:
-    # 1. Primary: M1 and M5 both oppose our position.
-    # 2. Strong M1 Oppose: If M1 is strongly opposing with high conviction (opposing_conf >= 0.70)
-    #    and M5 is not actively supporting (i.e. M5 is NEUTRAL or OPPOSING), alert to prevent ballooning drawdown.
-    invalidation_alert = (
-        (m1_verdict == "OPPOSING" and m5_verdict == "OPPOSING")
-        or (m1_verdict == "OPPOSING" and m1_opp_conf >= 0.70 and m5_verdict != "SUPPORTING")
-    )
+    # CRITICAL HARMONIZATION: If HTF (H1, H4) is actively SUPPORTING our trade, a minor 10-20 pip pullback
+    # on M1/M5 is expected noise. DO NOT trigger early invalidation panic into a supporting HTF trend!
+    if htf_verdict == "SUPPORTING":
+        invalidation_alert = False
+    else:
+        # 1. Primary: M1 and M5 both oppose our position.
+        # 2. Strong M1 Oppose: If M1 is strongly opposing with high conviction (opposing_conf >= 0.70)
+        #    and M5 is not actively supporting (i.e. M5 is NEUTRAL or OPPOSING), alert to prevent ballooning drawdown.
+        invalidation_alert = (
+            (m1_verdict == "OPPOSING" and m5_verdict == "OPPOSING")
+            or (m1_verdict == "OPPOSING" and m1_opp_conf >= 0.70 and m5_verdict != "SUPPORTING")
+        )
 
     return {
         "m1": {"score": m1_score, "verdict": m1_verdict, "opposing_conf": m1_opp_conf},

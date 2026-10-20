@@ -35,6 +35,47 @@ Aturan singkat:
 
 ---
 
+## 2026-10-20 — Resolusi 4 Bentrok Logika Kode Penyebab Tingginya Loss & Kalibrasi Sizing Defensif
+
+**Phase / Area:** Runtime (`runtime.py`), Risk Division (`agents/divisions/risk/agents.py`), Position Manager (`execution/position_manager.py`), Config (`.env.example`)
+**Status:** Done & Deployed to VPS
+
+**Yang dikerjakan**
+- **Deep Audit Database & Log Riil 269 Trades (Per 2026-10-20):**
+  - Statistik Database: 161 Win (60.1%) vs 108 Loss (39.9%). Win rate sebenarnya sangat solid (60.1%).
+  - Akar Masalah Utama: Rasio Payoff terbalik parah. Rata-rata Win hanya +$3.34 ($537.82 total), sedangkan rata-rata Loss mencapai -$8.06 ($870.48 total) — hampir 2.5x lipat.
+  - Asimetri Arah Ekstrem: 245 SELL (91.1%) vs 24 BUY (8.9%).
+  - Frekuensi Transaksi Berlebih: 269 trades dalam sehari (~25 trades/jam), memicu churn overtrading dan biaya gesekan (spread/komisi).
+- **Identifikasi & Resolusi 4 Bentrok Logika Kode:**
+  1. **Bentrok 1: Amnesia Drawdown Pasca-Restart (`_sod_balance` Reset di `runtime.py`):**
+     - Setiap kali bot restart, `_sod_balance` di-assign langsung ke `balance` saat itu ($9,435), sehingga `daily_pnl_pct` menjadi 0.0% dan status akun kembali ke `BALANCED` alih-alih `DEFENSE`. Akibatnya bot tidak pernah menerapkan rem darurat.
+     - **Fix:** Menghitung saldo awal hari sebenarnya dengan memperhitungkan realized PnL hari ini dari database: `_sod_balance = max(100.0, balance - self._daily_realized_pnl)`. Dengan saldo awal $10,000, bot langsung sadar sedang berada di `DEFENSE` mode (-8.54% drawdown).
+  2. **Bentrok 2: Ekspansi Lot Ilegal di Mode Defensif (`agents/divisions/risk/agents.py`):**
+     - Pada `PositionSizer`, saat `daily_pnl_pct < 0`, modul malah mengizinkan multiplier `2.0x` (lot melonjak ke 0.08) hanya karena sinyal SPK memiliki "high conviction" untuk mengejar target. Hal ini melanggar User Rules AGENTS.md.
+     - **Fix:** Mengunci plafon lot mode defensif secara kaku ke 0.02 – 0.04 lot. Jika drawdown $\le -4.0\%$, lot dikunci maksimum ke 0.03 lot tanpa kompromi, menghentikan pendarahan modal.
+  3. **Bentrok 3: Watchdog M1 Premature Invalidation vs Tren HTF Makro (`execution/position_manager.py`):**
+     - Watchdog M1 memotong order secara prematur (-$2.50 s/d -$5.00) hanya karena 1 lilin koreksi M1 melawan posisi, padahal tren HTF (H1, H4) sangat mendukung (`SUPPORTING`).
+     - **Fix:** Jika `htf_verdict == "SUPPORTING"`, `invalidation_alert` dipaksa `False` agar lilin M5 memiliki ruang bernapas alami (pullback 15-25 pips) menuju target take-profit dan tidak terpotong prematur oleh noise M1.
+  4. **Bentrok 4: Overtrading Churn & Parameter Cooldown Terlalu Pendek (`runtime.py`):**
+     - Cooldown pasca win hanya 10-25 detik dan pasca cutloss 60 detik, membuat bot langsung melompat masuk kembali ke pasar yang sedang bergejolak.
+     - **Fix:** Menaikkan cooldown pasca win menjadi 35 detik (Trending) dan 50 detik (Sideway). Cooldown pasca cutloss dinaikkan menjadi 90 detik, dan pasca trade close menjadi 75 detik.
+  5. **Sinkronisasi Parameter Siku Drawdown Guard (`.env.example` & VPS `.env`):**
+     - Parameter `MAX_DAILY_LOSS_PCT` di `.env.example` dan VPS sebelumnya tertinggal pada nilai usang `3.0%`, padahal spesifikasi resmi sprint 30-40% di `QUANT_FINENG_BIZDEV_SPEC.md` dan `settings.py` menetapkan toleransi `15.0%`.
+     - Disinkronkan ke `MAX_DAILY_LOSS_PCT=15.0` dan `MAX_WEEKLY_LOSS_PCT=25.0`.
+- **Verifikasi & Deployment:**
+  - Unit tests lokal: `pytest tests/test_execution.py tests/test_risk_division.py tests/test_spk_veto.py` → 81 passed (100% lulus).
+  - VPS container tests: 75 passed.
+  - Live VPS Telemetry: Terverifikasi bot berjalan dengan status aman, cooldown terjaga, dan `Tech-SupportResistance` berhasil memblokir entry SELL di support dasar ($4120.24).
+
+**File tersentuh**
+- `runtime.py` — Rekonstruksi SOD balance dari PnL database, perpanjangan jeda cooldown.
+- `agents/divisions/risk/agents.py` — Plafon keras lot 0.02 - 0.04 di Defense Mode.
+- `execution/position_manager.py` — Supresi invalidation panic M1 saat HTF supporting.
+- `.env.example` — Sinkronisasi MAX_DAILY_LOSS_PCT=15.0 & MAX_WEEKLY_LOSS_PCT=25.0.
+- `docs/PROGRESS.md` — Dokumentasi lengkap audit & fix.
+
+---
+
 ## 2026-10-20 — Dynamic Data-Driven S/R Boundary Gate (Anti-Top BUY & Anti-Bottom SELL)
 
 **Phase / Area:** Execution Layer (`execution/order_manager.py`), SPK Veto (`spk/veto.py`), Unit Tests (`tests/test_execution.py`)

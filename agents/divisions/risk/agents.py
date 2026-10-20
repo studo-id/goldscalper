@@ -131,16 +131,15 @@ class PositionSizer(RiskAgent):
             # Target pursuit demand factor: when chasing daily sprint target, quantify the pull
             target_urgency = min(1.35, max(1.0, round(remaining_usd / max(1.0, target_usd * 0.5), 3)))
 
+            max_scalper_lot = float(getattr(s, "max_scalper_lot", 0.08) or 0.08)
+
             if daily_pnl_pct < 0:
-                # DEFENSE: baseline shrinks proportionally to protect equity
+                # DEFENSE: baseline shrinks strictly to protect equity (AGENTS.md: 0.02 - 0.04 lot ceiling)
                 mode_name = "DEFENSE"
-                health_mult = max(0.50, round(1.0 + (daily_pnl_pct / 25.0), 3))
-                if is_high_conviction:
-                    # Pede by data: Juggler mengizinkan lot ekspansi terkalibrasi untuk mengejar target
-                    health_mult = round(min(2.0, health_mult * 1.35 * target_urgency), 3)
-                else:
-                    # Non-conviction: tahan lot di batas aman defensif
-                    health_mult = min(0.90, health_mult)
+                # If in deep drawdown (<= -4.0%), lot strictly capped at 0.02 - 0.03 lot
+                defense_ceiling = 0.03 if daily_pnl_pct <= -4.0 else 0.04
+                max_scalper_lot = min(max_scalper_lot, defense_ceiling)
+                health_mult = max(0.40, min(0.75, round(1.0 + (daily_pnl_pct / 20.0), 3)))
             elif daily_pnl_pct >= 3.0:
                 # GROWTH: expand lot dynamically using house money from broker gains
                 mode_name = "GROWTH"
@@ -167,7 +166,6 @@ class PositionSizer(RiskAgent):
             else:
                 taper_factor = 1.0
 
-            max_scalper_lot = float(getattr(s, "max_scalper_lot", 0.08) or 0.08)
             dynamic_size = min(max_scalper_lot, base_lot * taper_factor)
             size = min(max_scalper_lot, min(s.max_lot, max(s.min_lot, round_to_step(dynamic_size, s.lot_step))))
 

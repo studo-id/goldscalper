@@ -262,7 +262,9 @@ class Runtime:
             self._daily_win_count = 0
             self._live_avg_win = 0.0
         elif self._sod_balance is None and balance > 0:
-            self._sod_balance = balance
+            # Reconstruct true start-of-day balance using preloaded realized PnL from DB
+            # e.g. If balance now is $9,435 and realized_pnl is -$565, sod_b = 9435 - (-565) = $10,000!
+            self._sod_balance = max(100.0, balance - self._daily_realized_pnl)
 
         sod_b = self._sod_balance or balance
         daily_pnl = (equity - sod_b) if sod_b > 0 else 0.0
@@ -484,10 +486,10 @@ class Runtime:
                         context=ticket_ctx,
                     )
                     if any("clamp" in a or "cut" in a for a in act):
-                        self.order_manager.arm_cooldown(60, reason="post_cutloss_clamp")
+                        self.order_manager.arm_cooldown(90, reason="post_cutloss_clamp")
                     elif any("harvest" in a or "tp" in a for a in act):
                         regime = (self.orchestrator.last_state.extra.get("market_regime") if (self.orchestrator.last_state and self.orchestrator.last_state.extra) else "SIDEWAY")
-                        win_cd = 10 if "TRENDING" in str(regime) else 25
+                        win_cd = 35 if "TRENDING" in str(regime) else 50
                         self.order_manager.arm_cooldown(win_cd, reason="post_profit_harvest")
                 except Exception as exc:  # noqa: BLE001
                     log.warning("position manage failed (%s): %s", ticket, exc)
@@ -506,10 +508,10 @@ class Runtime:
         if not self._trades:
             if pnl > 0:
                 regime = (self.orchestrator.last_state.extra.get("market_regime") if (self.orchestrator.last_state and self.orchestrator.last_state.extra) else "SIDEWAY")
-                win_cd = 10 if "TRENDING" in str(regime) else 25
+                win_cd = 35 if "TRENDING" in str(regime) else 50
                 self.order_manager.arm_cooldown(win_cd, reason="post_win_chaining")
             else:
-                self.order_manager.arm_cooldown(60, reason="post_trade_close")
+                self.order_manager.arm_cooldown(75, reason="post_trade_close")
 
         # Update daily telemetry and BizDev trackers
         self._daily_realized_pnl += pnl
