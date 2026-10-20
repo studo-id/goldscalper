@@ -16,11 +16,12 @@ import {
   openModal,
   pnlClass,
   relTime,
+  formatStreamingDuration,
   formatWIB,
   toast,
   voteClass,
   voteLabel,
-} from "./components.js?v=20261014_17";
+} from "./components.js?v=20261020_01";
 import { api, manualOrder, panic, setState, state } from "./ws.js?v=20261014_17";
 import { PriceChart } from "./chart.js?v=20261015_01";
 
@@ -71,6 +72,30 @@ export const cockpit = {
   _lastCycles: -1,
   _lastOpenKey: "",
   _lastRecentKey: "",
+  _posTimer: null,
+
+  _startPositionTimer() {
+    if (this._posTimer) clearInterval(this._posTimer);
+    this._posTimer = setInterval(() => {
+      if (this.activeTab !== "positions") return;
+      const root = document.getElementById("view-cockpit");
+      if (!root) return;
+      const timeEls = root.querySelectorAll("#positions-tbody .pos-time[data-opened]");
+      if (!timeEls || timeEls.length === 0) return;
+      for (const el of timeEls) {
+        if (el.dataset.opened) {
+          el.textContent = formatStreamingDuration(el.dataset.opened);
+        }
+      }
+    }, 1000);
+  },
+
+  _stopPositionTimer() {
+    if (this._posTimer) {
+      clearInterval(this._posTimer);
+      this._posTimer = null;
+    }
+  },
 
   async enter() {
     const urlTf = window.getUrlParam?.("tf");
@@ -82,6 +107,7 @@ export const cockpit = {
       const mapped = COCKPIT_SUBTABS[urlSubtab.toLowerCase()];
       if (mapped) this.activeTab = mapped;
     }
+    this._startPositionTimer();
     try {
       const [pos, spk, tradesRes] = await Promise.all([
         api("/api/positions"),
@@ -105,6 +131,7 @@ export const cockpit = {
   },
 
   exit() {
+    this._stopPositionTimer();
     if (this.chart) {
       this.chart.destroy();
       this.chart = null;
@@ -592,7 +619,11 @@ export const cockpit = {
             pnlEl.className = `pos-pnl pnl-cell mono ${pnlClass(pnl)}`;
           }
           const timeEl = row.querySelector(".pos-time");
-          if (timeEl) timeEl.textContent = relTime(p.opened_at);
+          if (timeEl) {
+            timeEl.dataset.opened = p.opened_at;
+            timeEl.textContent = formatStreamingDuration(p.opened_at);
+            timeEl.title = `Opened at ${formatWIB(p.opened_at)}`;
+          }
         }
 
         // Live update basket summary bar if multi-entry active
@@ -780,7 +811,7 @@ function positionsBody() {
       <td class="mono">${fmtPrice(entry)}</td>
       <td class="pos-current mono">${fmtPrice(current)}</td>
       <td class="pos-pnl pnl-cell mono ${pnlClass(pnl)}">${fmtPnl(pnl)}</td>
-      <td class="pos-time mono dim">${relTime(p.opened_at)}</td>
+      <td class="pos-time mono dim" data-opened="${p.opened_at}" title="Opened at ${formatWIB(p.opened_at)}">${formatStreamingDuration(p.opened_at)}</td>
       <td>
         <button class="btn danger" style="padding: 3px 8px; font-size: 11px;" onclick="window.closeSinglePosition(${ticket})" type="button">
           Close

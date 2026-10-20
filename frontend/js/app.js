@@ -1,8 +1,8 @@
 // GoldScalper — app bootstrap: nav, router, topbar, symbol strip,
 // collapsible sidebar, session popover, and service worker.
 
-import { esc, fmtMoney, fmtPrice, hydrateIcons, icon, openModal, toast } from "./components.js?v=20261014_17";
-import { COCKPIT_SUBTABS, VIEWS } from "./agents.js?v=20261014_17";
+import { esc, fmtMoney, fmtPrice, hydrateIcons, icon, openModal, toast } from "./components.js?v=20261020_01";
+import { COCKPIT_SUBTABS, VIEWS } from "./agents.js?v=20261020_01";
 import {
   api,
   connectTelemetry,

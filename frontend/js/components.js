@@ -147,6 +147,24 @@ export function relTime(ts) {
   return `${Math.floor(s / 86400)}d ago`;
 }
 
+export function formatStreamingDuration(ts) {
+  if (!ts) return "—";
+  const t = typeof ts === "number" ? ts : Date.parse(ts);
+  if (Number.isNaN(t)) return "—";
+  const totalSec = Math.max(0, Math.floor((Date.now() - t) / 1000));
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  const pad = (n) => String(n).padStart(2, "0");
+  if (h > 0) {
+    return `${h}h ${pad(m)}m ${pad(s)}s`;
+  }
+  if (m > 0) {
+    return `${m}m ${pad(s)}s`;
+  }
+  return `${s}s`;
+}
+
 export function formatWIB(ts, includeSeconds = true) {
   if (!ts) return "—";
   const t = typeof ts === "number" ? ts : Date.parse(ts);
