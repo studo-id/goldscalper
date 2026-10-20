@@ -112,21 +112,58 @@ def evaluate(
                     )
                     continue
 
-                # Juggler High-Confluence Breakout Override:
-                # If SPK consensus has overwhelming multi-agent agreement (>= 18 confirming agents)
-                # AND portfolio health is safe (daily_pnl_pct >= -1.0%),
-                # the S/R boundary is treated as an active breakout rather than a hard block.
+                # Juggler & BizDev Dynamic Portfolio & Target S/R Barrier Governance:
+                # Dynamically balances boundary defense vs agile scalp breakout execution.
+                rem_target = (
+                    state.extra.get("remaining_target_usd")
+                    if (state and hasattr(state, "extra") and isinstance(state.extra, dict))
+                    else None
+                )
+                daily_pnl_pct = float(getattr(state, "daily_pnl_pct", 0.0) or 0.0) if state else 0.0
+
+                # 1. Finish Line Lockdown: Near daily sprint goal (remaining <= $20), strictly maintain hard barrier
+                is_finish_line = rem_target is not None and 0 < rem_target <= 20.0
+                if is_finish_line:
+                    return VetoResult(
+                        hard=True,
+                        reason=f"HARD BARRIER (FINISH_LINE_LOCKDOWN): {sig.agent_id} blocked {direction} near target (${rem_target:.1f} remaining) ({sig.reasoning})",
+                        notes=[f"{sig.agent_id}:{sig.veto}:barrier_finish_line"],
+                    )
+
+                # 2. Confluence count in candidate direction vs opposing direction
                 spk_confluence_count = sum(
                     1 for s in signals
                     if (s.vote > 0 if direction == ACTION_BUY else s.vote < 0)
                 )
-                daily_pnl_pct = float(getattr(state, "daily_pnl_pct", 0.0) or 0.0)
-                if spk_confluence_count >= 18 and daily_pnl_pct >= -1.0:
-                    result.confidence_delta -= 0.15
-                    result.notes.append(
-                        f"Barrier {sig.agent_id} demoted to soft penalty by SPK consensus ({spk_confluence_count} confirming agents)"
-                    )
-                    continue
+                spk_opposing_count = sum(
+                    1 for s in signals
+                    if (s.vote < 0 if direction == ACTION_BUY else s.vote > 0)
+                )
+                has_clear_consensus = (
+                    spk_confluence_count >= 5
+                    and spk_confluence_count > spk_opposing_count
+                )
+
+                # 3. Dynamic demotion anchored to Juggler Portfolio State
+                if has_clear_consensus:
+                    # In Defense mode, scale penalty dynamically with drawdown
+                    if daily_pnl_pct < 0.0:
+                        pnl_mult = min(1.5, 1.0 + abs(daily_pnl_pct) / 20.0)
+                        penalty = round(0.12 * pnl_mult, 4)
+                        result.confidence_delta -= penalty
+                        result.notes.append(
+                            f"Barrier {sig.agent_id} demoted to soft penalty (-{penalty}) by SPK consensus "
+                            f"({spk_confluence_count} confirming vs {spk_opposing_count} opposing, defense pnl={daily_pnl_pct:.1f}%)"
+                        )
+                        continue
+                    else:
+                        penalty = 0.10
+                        result.confidence_delta -= penalty
+                        result.notes.append(
+                            f"Barrier {sig.agent_id} demoted to soft penalty (-{penalty}) by SPK consensus "
+                            f"({spk_confluence_count} confirming vs {spk_opposing_count} opposing, growth/balanced)"
+                        )
+                        continue
 
                 return VetoResult(
                     hard=True,

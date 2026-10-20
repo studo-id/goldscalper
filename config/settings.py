@@ -91,6 +91,10 @@ class Settings(BaseSettings):
     max_hold_seconds: int = 600            # Max 10 mins hold per position
     cycle_interval_ms: int = 1000
 
+    # --- Dynamic SPK Confidence Floor (Portfolio & Target Seek Juggler) ---
+    min_confidence_floor_normal: float = 0.25   # Baseline confidence floor in normal/growth mode
+    min_confidence_floor_defense: float = 0.25  # Base confidence floor in defense mode (dynamically scales with drawdown)
+
     # --- Institutional SMC & Session Disciplines (Top-Down, OB, News & Session Clocks) ---
     news_blackout_pre_minutes: int = 30       # 30 mins before high-impact news release
     news_blackout_post_minutes: int = 20      # 20 mins after high-impact news release

@@ -296,3 +296,50 @@ def test_d1_macro_extreme_discount_softened_by_default() -> None:
     assert result_hard.hard is True
 
 
+def test_sr_barrier_demoted_by_spk_consensus_in_defense_mode() -> None:
+    # S/R barrier agent issues VETO_BUY with high confidence
+    barrier_sig = AgentSignal(
+        agent_id="Tech-SupportResistance",
+        division="technical",
+        vote=-1,
+        confidence=0.80,
+        veto=VETO_BUY,
+        reasoning="price in M1 upper resistance zone ($4136.12), veto BUY",
+    )
+    # 6 confirming BUY voters vs 1 opposing
+    confirming = [
+        AgentSignal(agent_id=f"buy_{i}", division="trend", vote=1, confidence=0.7)
+        for i in range(6)
+    ]
+    signals = [barrier_sig] + confirming
+    state = SharedState(daily_pnl_pct=-4.0)
+
+    result = evaluate(signals, state, ACTION_BUY)
+    assert result.hard is False
+    assert result.confidence_delta < 0.0
+    assert any("demoted to soft penalty" in n for n in result.notes)
+
+
+def test_sr_barrier_retained_near_finish_line() -> None:
+    # Near finish line (remaining <= $20), S/R barrier remains a strict hard veto
+    barrier_sig = AgentSignal(
+        agent_id="Tech-SupportResistance",
+        division="technical",
+        vote=-1,
+        confidence=0.80,
+        veto=VETO_BUY,
+        reasoning="price in M1 upper resistance zone ($4136.12), veto BUY",
+    )
+    confirming = [
+        AgentSignal(agent_id=f"buy_{i}", division="trend", vote=1, confidence=0.7)
+        for i in range(6)
+    ]
+    signals = [barrier_sig] + confirming
+    state = SharedState(extra={"remaining_target_usd": 15.0})
+
+    result = evaluate(signals, state, ACTION_BUY)
+    assert result.hard is True
+    assert "FINISH_LINE_LOCKDOWN" in (result.reason or "")
+
+
+

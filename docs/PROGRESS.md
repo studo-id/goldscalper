@@ -35,6 +35,31 @@ Aturan singkat:
 
 ---
 
+## 2026-10-20 — Kalibrasi Dinamis S/R Barrier & Confidence Floor Mengacu Portfolio & Target Harian (The Juggler & BizDev Directives)
+
+**Phase / Area:** SPK Veto Engine, Orchestrator, Settings (`spk/veto.py`, `agents/orchestrator.py`, `config/settings.py`, `tests/test_spk_veto.py`, `docs/QUANT_FINENG_BIZDEV_SPEC.md`)
+**Status:** Done & Deployed
+
+**Yang dikerjakan:**
+1. **Penyelarasan S/R Barrier ke Juggler & BizDev Unit Economics:**
+   - **Akar Masalah:** `Tech-SupportResistance` mengeluarkan hard barrier saat harga berada di batas atas/bawah rentang mikro M1 ($4,136.12, 79.2% span). Karena rentang M1 hanya selebar $5–$12 pada Gold, kondisi ini melumpuhkan scalper secara permanen. Syarat demosi sebelumnya menuntut `spk_confluence_count >= 18` dan `daily_pnl_pct >= -1.0%` yang mustahil terpenuhi di kondisi live.
+   - **Solusi Dinamis:**
+     - **Finish Line Lockdown:** Jika sisa target harian $\le \$20$ (`remaining_target_usd <= 20.0`), S/R Barrier dipertahankan ketat sebagai `HARD BARRIER (FINISH_LINE_LOCKDOWN)`.
+     - **Di Luar Garis Finish:** Jika SPK memiliki konsensus terarah (`confluence >= 5` confirming voters dan lebih banyak dari opposing voters), barrier didemosi ke soft penalty:
+       - Mode Defense (`daily_pnl_pct < 0`): Soft penalty `-0.12` s/d `-0.18` (proporsional terhadap drawdown), lot tetap dikunci minimal (0.02 lot).
+       - Mode Growth / Balanced: Soft penalty `-0.10`.
+2. **Eliminasi Double-Penalty PnL Drag & Dinamisasi Confidence Floor di Orchestrator:**
+   - Menghilangkan akumulasi penalti ganda di mana `pnl_drag` (-0.14) memotong confidence menjadi ~0.20, sementara floor dinaikkan ke 0.38, sehingga bot terjebak dalam deadlock tak berujung.
+   - Menetapkan floor dinamis berjenjang:
+     - Finish Line ($\le \$20$ remaining): Floor 0.40.
+     - Defense Mode (`daily_pnl_pct < 0`): Floor dinamis 0.25 s/d 0.30 (progresif terhadap drawdown), `pnl_drag` dibatasi maksimal `-0.05`.
+     - Growth Mode (`daily_pnl_pct >= 3%`): Floor 0.20 (agile momentum catching).
+     - Balanced Mode: Floor baseline 0.25.
+3. **Unit Testing & Verifikasi:**
+   - Menambahkan unit test `test_sr_barrier_demoted_by_spk_consensus_in_defense_mode()` dan `test_sr_barrier_retained_near_finish_line()` di `tests/test_spk_veto.py`. Seluruh 39 unit test passed bersih.
+
+---
+
 ## 2026-10-20 — De-eskalasi Veto D1 Macro Extreme Discount/Premium Menjadi Soft Confidence Penalty
 
 **Phase / Area:** SPK Veto Engine, Settings, Timeframe Division (`spk/veto.py`, `agents/orchestrator.py`, `config/settings.py`, `.env.example`, `tests/test_spk_veto.py`)

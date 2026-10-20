@@ -134,22 +134,44 @@ class Orchestrator:
 
             confidence = confidence_from(result, self.thresholds) + veto.confidence_delta
             if state and getattr(state, "daily_pnl_pct", 0.0) < 0:
-                pnl_drag = max(-0.15, round(state.daily_pnl_pct / 50.0, 4))
+                # Soft pnl drag (capped at -0.05) to avoid double-counting against dynamic floor
+                pnl_drag = max(-0.05, round(state.daily_pnl_pct / 100.0, 4))
                 confidence += pnl_drag
             decision.confidence = round(max(0.0, min(1.0, confidence)), 4)
 
-            # Minimum Confidence Floor Protection (Anti-deadlock / Low-Conviction Execution):
-            # A trade decision must meet configurable confidence floors (default 0.35 normal, 0.38 defense).
-            # Relaxed to allow fast scalper execution while filtering extreme chaos.
+            # Juggler & BizDev: Dynamic Portfolio & Target-Calibrated Confidence Floor
+            # Balances sprint agility with finish-line preservation and defense mode sizing discipline.
+            rem_target = (
+                state.extra.get("remaining_target_usd")
+                if state and hasattr(state, "extra") and isinstance(state.extra, dict)
+                else None
+            )
             daily_pnl_pct = float(getattr(state, "daily_pnl_pct", 0.0) or 0.0) if state else 0.0
-            def_floor = float(getattr(self.settings, "min_confidence_floor_defense", 0.38) or 0.38)
-            norm_floor = float(getattr(self.settings, "min_confidence_floor_normal", 0.35) or 0.35)
-            min_conf_floor = def_floor if daily_pnl_pct < 0.0 else norm_floor
+
+            if rem_target is not None and 0 < rem_target <= 20.0:
+                # 1. Finish line lockdown: require high conviction (0.40) to protect profits
+                min_conf_floor = 0.40
+                mode_label = "FINISH_LINE"
+            elif daily_pnl_pct < 0.0:
+                # 2. Defense mode: base 0.25 dynamically scaled up to max 0.30 by drawdown
+                base_def_floor = float(getattr(self.settings, "min_confidence_floor_defense", 0.25) or 0.25)
+                min_conf_floor = round(min(0.30, base_def_floor * (1.0 + min(0.20, abs(daily_pnl_pct) / 50.0))), 4)
+                mode_label = "DEFENSE"
+            elif daily_pnl_pct >= 3.0:
+                # 3. Growth mode: agile execution on momentum waves
+                min_conf_floor = 0.20
+                mode_label = "GROWTH"
+            else:
+                # 4. Balanced mode: standard baseline
+                norm_floor = float(getattr(self.settings, "min_confidence_floor_normal", 0.25) or 0.25)
+                min_conf_floor = norm_floor
+                mode_label = "BALANCED"
+
             if decision.confidence < min_conf_floor and not decision.hard_veto:
                 decision.hard_veto = True
                 decision.veto_reason = (
                     f"LOW CONFIDENCE: {decision.confidence:.2f} < {min_conf_floor:.2f} "
-                    f"(multi-agent consensus too weak/conflicted in {'DEFENSE' if daily_pnl_pct < 0 else 'NORMAL'} mode)"
+                    f"(multi-agent consensus too weak/conflicted in {mode_label} mode)"
                 )
 
             # Note: If trade is blocked by hard veto (such as S/R barrier or low confidence), we respect the veto

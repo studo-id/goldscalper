@@ -184,6 +184,10 @@ $$\text{Friction Ratio} = \frac{\text{Total Friction Cost}}{\text{Gross Profit G
 | **Time Decay** | `stagnant_harvest_seconds` | **120 detik** | Potong trade macet untuk selamatkan margin. |
 | **BizDev** | `rebate_per_lot_usd` | **$6.00** | Kalkulator estimasi arus kas rebate harian. |
 | **Friction Guard** | `max_friction_ratio_pct` | **25.0%** | Gating rasio gesekan biaya broker bersih (net friction setelah deduksi rebate $6/lot). Hanya memblokir trade pada status DEFENSE (drawdown harian < 0%); pada mode BALANCED/GROWTH memicu adaptasi TP expansion tanpa hard lock (anti deadlock paradox). |
+| **SPK Floor Normal** | `min_confidence_floor_normal` | **0.25** | Ambang batas confidence baseline mode Balanced (0.25) & Growth (0.20). |
+| **SPK Floor Defense** | `min_confidence_floor_defense` | **0.25 (s/d 0.30)** | Dinamis terhadap kedalaman drawdown; pnl_drag dibatasi maks -0.05 (anti double-penalty). |
+| **Finish Line Floor** | `finish_line_confidence_floor` | **0.40** | Mengetatkan ambang SPK saat sisa target <= $20 guna mengunci kemenangan sprint. |
+| **S/R Barrier Demotion** | `sr_barrier_confluence_min` | **5 confirming voters** | M1 micro S/R didemosi ke soft penalty (-0.12 s/d -0.18) saat konsensus kuat; tetap hard barrier saat Finish Line. |
 
 ---
 
