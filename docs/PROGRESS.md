@@ -35,6 +35,42 @@ Aturan singkat:
 
 ---
 
+## 2026-10-21 — Dynamic S/R Boundary Buffer & Dynamic HTF Divergence Veto (`execution/order_manager.py`, `spk/veto.py`)
+
+**Phase / Area:** Phase 14 / Execution Layer & Anti-Trap Shield  
+**Status:** Done  
+
+**Yang dikerjakan**
+- **Audit Kasus Tiket #4908409177 (BUY @ 4137.03):**
+  1. Terjebak di atap resisten 4140.65 karena buffer resisten M5 sebelumnya masih dibatasi plafon kaku 3.50 USD (35 pips). Entry di 4137.03 (jarak 3.62 USD / 36 pips) lolos hanya karena selisih 1.2 pips di luar batas buffer lama.
+  2. Terjadi polarisasi ekstrem antara LTF M1 (`technical` +2.15, `structure` +1.56) melawan HTF (`timeframe` M15/M30/H1 bernilai **-2.205 / SELL**), yang memicu penolakan keras (*flash rejection* -30 pips dalam 20 detik) hingga terkena *Catastrophic Gap Cut* di detik 26.
+- **Dynamic S/R Boundary Buffer (The Juggler & BizDev):**
+  - Mengubah buffer resisten/support statis menjadi dinamis terkalibrasi terhadap rentang channel M5 dan kesehatan portfolio harian:
+    - **DEFENSE Mode (`daily_pnl_pct < 0`) & Finish Line Lockdown (`remaining <= $20`):** Buffer diperluas dinamis $2.00 – $5.50 (rasio 30% channel).
+    - **BALANCED Mode (`0% <= pnl < 3%`):** Buffer dinamis $1.80 – $4.80 (rasio 28% channel).
+    - **GROWTH Mode (`pnl >= 3%`):** Buffer standar $1.50 – $4.00 (rasio 25% channel).
+  - Pada kasus tiket #4908409177, buffer otomatis melebar menjadi > $4.30 – $5.00, memblokir total entry BUY di 4137.03.
+- **Dynamic HTF Divergence Hard Veto (`spk/veto.py`):**
+  - Menerapkan veto otomatis jika divisi `timeframe` (HTF M15/M30/H1) memberikan skor berlawanan arah secara ekstrem terhadap usulan arah trade:
+    - Di mode **DEFENSE / Finish Line**: Oposisi HTF $\ge 1.40$ langsung memicu **Hard Veto `HTF_DIVERGENCE_DEFENSE`**.
+    - Di mode **BALANCED**: Oposisi HTF $\ge 1.80$ langsung memicu **Hard Veto `HTF_DIVERGENCE_CONTESTED`** (seperti kasus #4908409177 dengan skor HTF -2.205).
+    - Di mode **GROWTH**: Oposisi HTF $\ge 2.40$ memicu **Hard Veto `HTF_DIVERGENCE_EXTREME`**; di bawah itu dikenakan penalti confidence dinamis.
+- **Unit Tests:** Menambahkan `test_dynamic_htf_divergence_veto` di `tests/test_spk_veto.py` dan verifikasi buffer dinamis di `tests/test_execution.py`.
+
+**File tersentuh**
+- `execution/order_manager.py` — Dynamic S/R buffer berbasis rasio channel dan status Juggler.
+- `spk/veto.py` — Integrasi Dynamic HTF Divergence Veto berbasis skor divisi `timeframe`.
+- `tests/test_spk_veto.py` — Unit test skenario HTF divergence veto contested & defense.
+- `tests/test_execution.py` — Unit test skenario dynamic buffer expansion di DEFENSE mode.
+
+**Verifikasi**
+- `pytest tests/test_spk_veto.py tests/test_spk_voting.py tests/test_execution.py tests/test_structural_guard.py tests/test_market_regime.py` → 87 passed in 0.46s.
+
+**Catatan / Next**
+- Deploy file ke server live dan pantau eksekusi bot.
+
+---
+
 ## 2026-10-21 — Eliminasi Scalper Runway Exception & Perpanjangan Post-Win Cooldown (`execution/order_manager.py`, `runtime.py`)
 
 **Phase / Area:** Phase 14 / Execution Layer & Anti-FOMO Gate  

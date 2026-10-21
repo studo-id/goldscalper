@@ -553,8 +553,32 @@ class OrderManager:
             cluster_resistance = float(sr_res)
 
         range_height = max(1.0, cluster_resistance - cluster_support)
-        # Dynamic buffer: at least $1.50 (15 pips) up to 25% of the range (capped at $3.50 / 35 pips)
-        sr_buffer = max(1.50, min(3.50, round(range_height * 0.25, 2)))
+
+        # Dynamic S/R Buffer calibrated to The Juggler (Portfolio Health & Target Proximity):
+        daily_pnl_pct = float(getattr(state, "daily_pnl_pct", 0.0) or 0.0) if state else 0.0
+        rem_target = (
+            state.extra.get("remaining_target_usd")
+            if (state and hasattr(state, "extra") and isinstance(state.extra, dict))
+            else None
+        )
+
+        if daily_pnl_pct < 0 or (rem_target is not None and 0 < rem_target <= 20.0):
+            # DEFENSE mode or Finish Line: wider buffer to keep safe distance from ceilings & floors
+            min_b = 2.00
+            max_b = 5.50
+            ratio = 0.30
+        elif daily_pnl_pct >= 3.0:
+            # GROWTH mode: scalping with house money allows tighter buffer
+            min_b = 1.50
+            max_b = 4.00
+            ratio = 0.25
+        else:
+            # BALANCED baseline
+            min_b = 1.80
+            max_b = 4.80
+            ratio = 0.28
+
+        sr_buffer = max(min_b, min(max_b, round(range_height * ratio, 2)))
         market_regime = str(state.extra.get("market_regime", "") or "").upper()
 
         last_b = m5_bars[-1]

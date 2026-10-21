@@ -125,6 +125,72 @@ def evaluate(
         result.confidence_delta -= 0.40
         result.notes.append("Counter-trend SELL penalized against confirmed H1/D1 bullish macro trend (-0.40)")
 
+    # --- Juggler & BizDev: Dynamic HTF Divergence Veto ---
+    # The intermediate-to-higher timeframe complex (M15, M30, H1, H4, D1) dictates
+    # the macro current. Entering opposite to heavy HTF opposition leads to severe
+    # flash rejection losses (e.g. 30 pips dump in 20s).
+    rem_target = (
+        state.extra.get("remaining_target_usd")
+        if (state and hasattr(state, "extra") and isinstance(state.extra, dict))
+        else None
+    )
+    htf_score = sum(
+        s.vote * (s.confidence or 1.0) * s.weight
+        for s in signals
+        if getattr(s, "division", "") == "timeframe"
+    )
+
+    is_defense_or_finish = daily_pnl_pct < 0.0 or (rem_target is not None and 0 < rem_target <= 20.0)
+    is_growth = daily_pnl_pct >= 3.0
+
+    if direction == ACTION_BUY and htf_score < -0.10:
+        opposing_htf = abs(htf_score)
+        if is_defense_or_finish and p.counter_trend_defense_block_enabled and opposing_htf >= 1.40:
+            return VetoResult(
+                hard=True,
+                reason=f"HTF_DIVERGENCE_DEFENSE: Strictly prohibited from opening counter-trend BUY against strong HTF opposition (htf_score={htf_score:.2f} <= -1.40) in Defense/Finish mode",
+                notes=[f"HTF_DIVERGENCE:BUY:{htf_score:.2f}"],
+            )
+        elif not is_growth and opposing_htf >= 1.80:
+            return VetoResult(
+                hard=True,
+                reason=f"HTF_DIVERGENCE_CONTESTED: Prohibited from BUY against severe HTF opposition (htf_score={htf_score:.2f} <= -1.80)",
+                notes=[f"HTF_DIVERGENCE:BUY:{htf_score:.2f}"],
+            )
+        elif opposing_htf >= 2.40:
+            return VetoResult(
+                hard=True,
+                reason=f"HTF_DIVERGENCE_EXTREME: Blocked BUY against extreme HTF opposition (htf_score={htf_score:.2f} <= -2.40)",
+                notes=[f"HTF_DIVERGENCE:BUY:{htf_score:.2f}"],
+            )
+        else:
+            result.confidence_delta -= min(0.35, round(opposing_htf * 0.15, 2))
+            result.notes.append(f"Counter-trend BUY penalized against opposing HTF (score={htf_score:.2f})")
+
+    elif direction == ACTION_SELL and htf_score > 0.10:
+        opposing_htf = htf_score
+        if is_defense_or_finish and p.counter_trend_defense_block_enabled and opposing_htf >= 1.40:
+            return VetoResult(
+                hard=True,
+                reason=f"HTF_DIVERGENCE_DEFENSE: Strictly prohibited from opening counter-trend SELL against strong HTF opposition (htf_score=+{htf_score:.2f} >= +1.40) in Defense/Finish mode",
+                notes=[f"HTF_DIVERGENCE:SELL:+{htf_score:.2f}"],
+            )
+        elif not is_growth and opposing_htf >= 1.80:
+            return VetoResult(
+                hard=True,
+                reason=f"HTF_DIVERGENCE_CONTESTED: Prohibited from SELL against severe HTF opposition (htf_score=+{htf_score:.2f} >= +1.80)",
+                notes=[f"HTF_DIVERGENCE:SELL:+{htf_score:.2f}"],
+            )
+        elif opposing_htf >= 2.40:
+            return VetoResult(
+                hard=True,
+                reason=f"HTF_DIVERGENCE_EXTREME: Blocked SELL against extreme HTF opposition (htf_score=+{htf_score:.2f} >= +2.40)",
+                notes=[f"HTF_DIVERGENCE:SELL:+{htf_score:.2f}"],
+            )
+        else:
+            result.confidence_delta -= min(0.35, round(opposing_htf * 0.15, 2))
+            result.notes.append(f"Counter-trend SELL penalized against opposing HTF (score=+{htf_score:.2f})")
+
     for sig in signals:
         if sig.veto in (blocking_flag, VETO_ALL):
             if sig.veto == VETO_ALL:

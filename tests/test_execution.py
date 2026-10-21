@@ -672,4 +672,11 @@ async def test_order_manager_sr_boundary_blocks_without_confirmed_breakout() -> 
     blocked_breakout, _ = om._check_dynamic_sr_boundary(ACTION_BUY, 4143.00, st)
     assert blocked_breakout is False
 
+    # 4. Ticket #4908409177 scenario: Entry at 4137.03 (dist=4.90) in DEFENSE mode (buffer expands to $5.08)
+    st.frames["M5"][-1]["close"] = 4139.00
+    st.daily_pnl_pct = -1.0
+    blocked_defense, reason_defense = om._check_dynamic_sr_boundary(ACTION_BUY, 4137.03, st)
+    assert blocked_defense is True
+    assert "buffer=5.08" in reason_defense
+
 

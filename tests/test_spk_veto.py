@@ -480,8 +480,37 @@ def test_counter_trend_defense_blocks_buy_during_h1_d1_downtrend() -> None:
     # 3. But SELL with the trend is completely allowed!
     result_sell = evaluate(signals, state, ACTION_SELL)
     assert result_sell.hard is False
+def test_dynamic_htf_divergence_veto() -> None:
+    """Verify that severe HTF divergence triggers hard veto to prevent buying at ceilings or selling at floors."""
+    # Scenario matching Ticket #4908409177:
+    # Timeframe division (M15, M30, H1) is heavily voting SELL (combined score = -2.205)
+    htf_sigs = [
+        AgentSignal(agent_id="TF-M15-Liquidity", division="timeframe", vote=-1, confidence=0.75, weight=1.0),
+        AgentSignal(agent_id="TF-M30-Momentum", division="timeframe", vote=-1, confidence=0.70, weight=1.0),
+        AgentSignal(agent_id="TF-H1-Regime", division="timeframe", vote=-1, confidence=0.75, weight=1.0),
+    ]
+    # LTF M1 technical agents trying to buy
+    ltf_sigs = [
+        AgentSignal(agent_id="Tech-EMA-Cross", division="technical", vote=1, confidence=0.8, weight=1.0),
+        AgentSignal(agent_id="Tech-RSI-Stoch", division="technical", vote=1, confidence=0.7, weight=1.0),
+    ]
+    signals = htf_sigs + ltf_sigs
+    state = SharedState(daily_pnl_pct=0.5)  # BALANCED mode
 
+    # 1. Propose BUY against HTF score -2.20 (-2.20 <= -1.80) -> MUST TRIGGER HARD VETO
+    res_buy = evaluate(signals, state, ACTION_BUY)
+    assert res_buy.hard is True
+    assert "HTF_DIVERGENCE_CONTESTED" in (res_buy.reason or "")
 
+    # 2. In DEFENSE mode (-1.5% drawdown), lower threshold (1.40) blocks even moderate HTF divergence
+    state_def = SharedState(daily_pnl_pct=-1.5)
+    p_def = VetoParams(counter_trend_defense_block_enabled=True)
+    res_def = evaluate(signals, state_def, ACTION_BUY, params=p_def)
+    assert res_def.hard is True
+    assert "HTF_DIVERGENCE_DEFENSE" in (res_def.reason or "")
 
+    # 3. But SELL in alignment with HTF is completely allowed!
+    res_sell = evaluate(signals, state, ACTION_SELL)
+    assert res_sell.hard is False
 
 
