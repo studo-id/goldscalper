@@ -570,6 +570,45 @@ async def test_position_manager_m5_reversal_hold() -> None:
     assert len(await client.positions()) == 0
 
 
+async def test_order_manager_m1_candle_cooldown() -> None:
+    client = MockMT5Client()
+    om = OrderManager(client=client, settings=settings)
+
+    # Arm cooldown with post_cutloss_clamp -> must route to M1 candle cooldown (>= 60s)
+    om.arm_cooldown(25, reason="post_cutloss_clamp")
+    assert om.in_cooldown is True
+    assert om._cooldown_m1_bucket is not None
+
+    # New entry execution while in cooldown must be blocked
+    res = await om.execute(_decision())
+    assert res is not None
+    assert res.ok is False
+    assert "post-trade cooldown active" in (res.reason or "")
+
+
+async def test_order_manager_blocks_probing_sr_boundaries() -> None:
+    client = MockMT5Client()
+    om = OrderManager(client=client, settings=settings)
+
+    # M5 range: support 2345.0, resistance 2355.0, last close 2350.0 (no breakout)
+    m5_bars = [
+        {"open": 2350.0, "high": 2355.0, "low": 2345.0, "close": 2350.0}
+        for _ in range(10)
+    ]
+    st = SharedState(symbol="XAUUSDm", frames={"M5": m5_bars})
+
+    # 1. Probing at or above resistance (entry 2355.50 > 2355.0) -> BLOCKED
+    res_buy = await om.execute(_decision(action=ACTION_BUY, entry=2355.50), state=st)
+    assert res_buy is not None and not res_buy.ok
+    assert "Blocked BUY probing above resistance ceiling" in (res_buy.reason or "")
+
+    # 2. Probing at or below support (entry 2344.50 < 2345.0) -> BLOCKED
+    res_sell = await om.execute(_decision(action=ACTION_SELL, entry=2344.50), state=st)
+    assert res_sell is not None and not res_sell.ok
+    assert "Blocked SELL probing below support floor" in (res_sell.reason or "")
+
+
+
 
 
 

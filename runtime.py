@@ -440,7 +440,7 @@ class Runtime:
                                 self._predator_reload_expiry = utcnow() + timedelta(seconds=self.settings.predator_reload_window_s)
                                 log.info("PREDATOR RELOAD ARMED for %s (window=%ds)", side_name, self.settings.predator_reload_window_s)
                         else:
-                            self.order_manager.arm_cooldown(30, reason="post_basket_cut")
+                            self.order_manager.arm_m1_candle_cooldown(60, reason="post_basket_cut")
 
                         # Mark individual tickets so _finalize_closed inherits basket outcome
                         for p in group:
@@ -498,7 +498,7 @@ class Runtime:
                         context=ticket_ctx,
                     )
                     if any("clamp" in a or "cut" in a for a in act):
-                        self.order_manager.arm_cooldown(25, reason="post_cutloss_clamp")
+                        self.order_manager.arm_m1_candle_cooldown(60, reason="post_cutloss_clamp")
                     elif any("harvest" in a or "tp" in a for a in act):
                         regime = (self.orchestrator.last_state.extra.get("market_regime") if (self.orchestrator.last_state and self.orchestrator.last_state.extra) else "SIDEWAY")
                         win_cd = 15 if "TRENDING" in str(regime) else 20
@@ -531,7 +531,7 @@ class Runtime:
                 win_cd = 15 if "TRENDING" in str(regime) else 20
                 self.order_manager.arm_cooldown(win_cd, reason="post_win_chaining")
             else:
-                self.order_manager.arm_cooldown(25, reason="post_trade_close")
+                self.order_manager.arm_m1_candle_cooldown(60, reason="post_trade_cutloss")
 
         # Update daily telemetry and BizDev trackers
         self._daily_realized_pnl += pnl

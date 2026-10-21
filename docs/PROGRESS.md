@@ -35,6 +35,31 @@ Aturan singkat:
 
 ---
 
+## 2026-10-21 — M1 Candle-Aware Cutloss Cooldown & Anti-Probing S/R Ceiling Guard (`execution/order_manager.py`, `runtime.py`, `agents/divisions/technical/agents.py`)
+
+**Phase / Area:** Phase 14 / Execution Layer & Anti-Chasing Matrix  
+**Status:** Done  
+
+**Yang dikerjakan**
+- **Audit Kasus Tiket #4907526364 & #4907544794:** Mengidentifikasi bahwa tiket kedua masuk lagi di pucuk resistance yang sama (4132.16) hanya 1 menit 53 detik setelah tiket pertama di-cut loss karena jeda cooldown pasca cutloss hanya 25 detik statis, dan `_check_dynamic_sr_boundary` memiliki celah atas (`entry <= cluster_resistance + 1.0`) yang membiarkan harga di atas resistance lolos tanpa konfirmasi candle M5 close.
+- **M1 Candle-Aware Cooldown:** Mengimplementasikan `arm_m1_candle_cooldown()` di `OrderManager` yang secara otomatis mengunci cooldown hingga candle M1 yang sedang berjalan selesai dan berganti ke candle M1 baru (dengan durasi minimum $\ge 60$ detik, up to 100 detik jika cutloss terjadi di akhir candle).
+- **Rute Otomatis Semua Cutloss ke M1 Candle Cooldown:** Seluruh event cutloss (`post_cutloss_clamp`, `post_basket_cut`, `post_trade_cutloss`) secara otomatis dialihkan ke `arm_m1_candle_cooldown()`.
+- **Anti-Probing S/R Boundary Gate:** Memperbaiki `_check_dynamic_sr_boundary` di `order_manager.py`. Setiap upaya entry BUY di area $\ge \text{resistance} - \text{buffer}$ (termasuk yang menusuk ke atas resistance) tanpa penutupan candle M5 di atas resistance (+0.50) akan **DIBLOKIR TOTAL** (`dist_to_res <= 0`). Hal yang sama berlaku simetris untuk upaya SELL di bawah support floor.
+- **M5 Collision Guard di `Tech-SupportResistance`:** M1 breakout/breakdown yang langsung menabrak resistance/support mayor M5 kini di-veto (`VETO_BUY`/`VETO_SELL`) alih-alih memberikan sinyal buy/sell 0.85 conf.
+- **Unit Tests:** Menambahkan `test_order_manager_m1_candle_cooldown` dan `test_order_manager_blocks_probing_sr_boundaries` di `tests/test_execution.py`.
+
+**File tersentuh**
+- `execution/order_manager.py` — Implementasi `arm_m1_candle_cooldown`, pelacakan `_cooldown_m1_bucket`, dan pengetatan `_check_dynamic_sr_boundary`.
+- `runtime.py` — Update panggilan cooldown cutloss ke `arm_m1_candle_cooldown(60)`.
+- `agents/divisions/technical/agents.py` — Penambahan M5 resistance/support collision guard.
+- `tests/test_execution.py` — Unit tests validasi M1 candle cooldown & boundary probing blocker.
+
+**Verifikasi**
+- `pytest tests/test_execution.py tests/test_technical_division.py` → 51 passed in 0.31s.
+
+**Catatan / Next**
+- Deploy perubahan ke server produksi (`studo@100.114.150.48`), restart `gs-bot`, dan verifikasi logging cooldown M1 baru.
+
 ## 2026-10-21 — SATPAM Fibonacci 78.6% Last-Bastion Anchor & Anti-Wick Panic Shield (`execution/structural_guard.py`, `execution/position_manager.py`)
 
 **Phase / Area:** Phase 14 / Execution Layer & Anti-Bleeding Matrix  

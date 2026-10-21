@@ -263,6 +263,15 @@ class SupportResistance(TechnicalAgent):
 
                 # 1. Confirmed M1 Breakout / Breakdown (Must genuinely close beyond boundary buffer)
                 if close < (m1_support - buf):
+                    if close <= (support + buf) and b.last_close >= support:
+                        meta["micro_sr_event"] = "M5_SUPPORT_COLLISION"
+                        return self.signal(
+                            VOTE_NEUTRAL,
+                            0.80,
+                            f"M1 micro-breakdown colliding into M5 support floor (${support:.2f}), veto SELL",
+                            meta,
+                            veto=VETO_SELL,
+                        )
                     meta["micro_sr_event"] = "CONFIRMED_MICRO_BREAKDOWN"
                     return self.signal(
                         VOTE_SELL,
@@ -272,6 +281,15 @@ class SupportResistance(TechnicalAgent):
                         veto=VETO_BUY,  # Strictly forbid buying against active breakdown!
                     )
                 if close > (m1_resistance + buf):
+                    if close >= (resistance - buf) and b.last_close <= resistance:
+                        meta["micro_sr_event"] = "M5_RESISTANCE_COLLISION"
+                        return self.signal(
+                            VOTE_NEUTRAL,
+                            0.80,
+                            f"M1 micro-breakout colliding into M5 resistance ceiling (${resistance:.2f}), veto BUY",
+                            meta,
+                            veto=VETO_BUY,
+                        )
                     meta["micro_sr_event"] = "CONFIRMED_MICRO_BREAKOUT"
                     return self.signal(
                         VOTE_BUY,

@@ -50,10 +50,47 @@ class OrderManager:
     notifier: Any | None = None
     _cooldown_until: datetime | None = None
     _cooldown_reason: str | None = None
+    _cooldown_m1_bucket: int | None = None
+
+    def arm_m1_candle_cooldown(self, min_seconds: int = 60, reason: str = "post_cutloss") -> None:
+        """Arms cooldown to wait until the current M1 candle finishes and a NEW M1 candle begins,
+        guaranteeing a minimum buffer (default min 60 seconds).
+        """
+        now = utcnow()
+        current_epoch_min = int(now.timestamp()) // 60
+        self._cooldown_m1_bucket = current_epoch_min
+
+        # Seconds remaining until the boundary of the current M1 candle (:00)
+        current_sec = now.second + (now.microsecond / 1_000_000.0)
+        remaining_current_candle = 60.0 - current_sec
+
+        # If remaining time in current candle is small (< 40s),
+        # waiting only until next candle boundary would unblock too early into the shockwave.
+        # Wait for the next M1 candle to finish as well.
+        if remaining_current_candle < 40.0:
+            target_seconds = remaining_current_candle + 60.0
+        else:
+            target_seconds = remaining_current_candle
+
+        target_seconds = max(float(min_seconds), target_seconds)
+        seconds_int = round(target_seconds)
+        self._cooldown_until = now + timedelta(seconds=seconds_int)
+        self._cooldown_reason = reason
+        log.info(
+            "M1 CANDLE COOLDOWN ARMED: blocking entries for %ds until new M1 candle (until %s, bucket=%d, reason: %s)",
+            seconds_int,
+            self._cooldown_until.strftime("%H:%M:%S"),
+            self._cooldown_m1_bucket,
+            reason,
+        )
 
     def arm_cooldown(self, seconds: int = 60, reason: str = "post_trade") -> None:
+        # Route cutloss/loss cooldowns automatically through M1-candle cooldown
+        if any(w in reason.lower() for w in ("cut", "clamp", "loss")):
+            return self.arm_m1_candle_cooldown(min_seconds=max(60, seconds), reason=reason)
         self._cooldown_until = utcnow() + timedelta(seconds=seconds)
         self._cooldown_reason = reason
+        self._cooldown_m1_bucket = None
         log.info(
             "COOLDOWN ARMED: blocking new initial entries for %ds (until %s, reason: %s)",
             seconds,
@@ -63,12 +100,26 @@ class OrderManager:
 
     @property
     def in_cooldown(self) -> bool:
-        if self._cooldown_until is None:
+        now = utcnow()
+        if self._cooldown_until is not None:
+            if now < self._cooldown_until:
+                return True
+            # Time expired, ensure M1 candle bucket requirement is also cleared
+            if self._cooldown_m1_bucket is not None:
+                current_epoch_min = int(now.timestamp()) // 60
+                if current_epoch_min <= self._cooldown_m1_bucket:
+                    return True
+            self._cooldown_until = None
+            self._cooldown_reason = None
+            self._cooldown_m1_bucket = None
             return False
-        if utcnow() < self._cooldown_until:
-            return True
-        self._cooldown_until = None
-        self._cooldown_reason = None
+
+        if self._cooldown_m1_bucket is not None:
+            current_epoch_min = int(now.timestamp()) // 60
+            if current_epoch_min <= self._cooldown_m1_bucket:
+                return True
+            self._cooldown_m1_bucket = None
+
         return False
 
     async def open_positions(self, symbol: str | None = None) -> int:
@@ -510,51 +561,55 @@ class OrderManager:
         last_m5_close = _val(last_b, "close")
 
         if action == ACTION_SELL:
-            # Entering within dynamic buffer of support floor (or lower quartile of sideways range)
-            if (cluster_support - 1.0) <= entry <= (cluster_support + sr_buffer):
+            # Entering within dynamic buffer of support floor or probing below it without confirmed M5 close
+            if entry <= (cluster_support + sr_buffer):
                 is_clean_breakdown = (
                     last_m5_close < (cluster_support - 0.50)
                     and struct_event in ("LH_LL", "BREAKDOWN")
                 )
                 if not is_clean_breakdown:
                     dist_to_support = entry - cluster_support
-                    # Scalper Runway Exception: In fast M1 scalping, if price still has ample runway
-                    # (dist >= $1.50 USD / 15 pips) before touching the floor, and market shows
-                    # directional trend or micro-momentum, permit the scalp! Only block when directly colliding into the floor.
-                    m1_micro = getattr(state, "extra", {}).get("m1_micro_vote") if state else None
+                    # If price is already AT or BELOW support (dist_to_support <= 0), probing unconfirmed territory -> STRICTLY BLOCK
+                    if dist_to_support <= 0:
+                        return (
+                            True,
+                            f"Blocked SELL probing below support floor (${cluster_support:.2f}, entry=${entry:.2f}) without confirmed M5 candle close",
+                        )
+                    # Scalper Runway Exception: only if ample distance >= 1.50 AND clean macro bear trend
                     if dist_to_support >= 1.50 and (
                         market_regime in ("TRENDING_BEAR", "EXPANSION_BEAR")
-                        or struct_event in ("LH_LL", "BEAR_TREND", "BREAKDOWN")
-                        or m1_micro == -1
+                        and struct_event in ("LH_LL", "BEAR_TREND", "BREAKDOWN")
                     ):
                         return False, ""
                     return (
                         True,
-                        f"Blocked SELL near support floor (${cluster_support:.2f}, dist={dist_to_support:.2f}, buffer={sr_buffer:.2f}) without confirmed M5 breakdown",
+                        f"Blocked SELL near support floor (${cluster_support:.2f}, dist={dist_to_support:.2f}, buffer={sr_buffer:.2f}) without confirmed M5 breakdown close",
                     )
 
         elif action == ACTION_BUY:
-            # Entering within dynamic buffer of resistance ceiling (or upper quartile of sideways range)
-            if (cluster_resistance - sr_buffer) <= entry <= (cluster_resistance + 1.0):
+            # Entering within dynamic buffer of resistance ceiling or probing above it without confirmed M5 close
+            if entry >= (cluster_resistance - sr_buffer):
                 is_clean_breakout = (
                     last_m5_close > (cluster_resistance + 0.50)
                     and struct_event in ("HH_HL", "BREAKOUT")
                 )
                 if not is_clean_breakout:
                     dist_to_res = cluster_resistance - entry
-                    # Scalper Runway Exception: In fast M1 scalping, if price still has ample runway
-                    # (dist >= $1.50 USD / 15 pips) before touching the ceiling, and market shows
-                    # directional trend or micro-momentum, permit the scalp!
-                    m1_micro = getattr(state, "extra", {}).get("m1_micro_vote") if state else None
+                    # If price is already AT or ABOVE resistance (dist_to_res <= 0), probing unconfirmed territory -> STRICTLY BLOCK
+                    if dist_to_res <= 0:
+                        return (
+                            True,
+                            f"Blocked BUY probing above resistance ceiling (${cluster_resistance:.2f}, entry=${entry:.2f}) without confirmed M5 candle close",
+                        )
+                    # Scalper Runway Exception: only if ample distance >= 1.50 AND clean macro bull trend
                     if dist_to_res >= 1.50 and (
                         market_regime in ("TRENDING_BULL", "EXPANSION_BULL")
-                        or struct_event in ("HH_HL", "BULL_TREND", "BREAKOUT")
-                        or m1_micro == 1
+                        and struct_event in ("HH_HL", "BULL_TREND", "BREAKOUT")
                     ):
                         return False, ""
                     return (
                         True,
-                        f"Blocked BUY near resistance ceiling (${cluster_resistance:.2f}, dist={dist_to_res:.2f}, buffer={sr_buffer:.2f}) without confirmed M5 breakout",
+                        f"Blocked BUY near resistance ceiling (${cluster_resistance:.2f}, dist={dist_to_res:.2f}, buffer={sr_buffer:.2f}) without confirmed M5 breakout close",
                     )
 
         return False, ""
