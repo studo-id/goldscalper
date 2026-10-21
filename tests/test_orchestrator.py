@@ -118,3 +118,43 @@ async def test_low_confidence_gets_hard_veto() -> None:
     assert decision.hard_veto is True
     assert decision.veto_reason is not None and "LOW CONFIDENCE" in decision.veto_reason
 
+
+async def test_defense_mode_min_confidence_floor() -> None:
+    # In DEFENSE mode (daily_pnl_pct < 0), confidence below 0.50 is strictly vetoed
+    reg = _registry(
+        DummyAgent("def1", division="trend", vote=VOTE_BUY, confidence=0.55, weight=3.0),
+    )
+
+    def _state() -> SharedState:
+        return SharedState(spread_points=100, session="asia", daily_pnl_pct=-2.0, extra={"remaining_target_usd": 50.0, "h1_vote": -1})
+
+    orch = Orchestrator(reg, bus=MemoryBus(), state_builder=_state, broadcast=False)
+    decision = await orch.run_cycle()
+    assert decision.action == ACTION_BUY
+    assert decision.confidence < 0.50
+    assert decision.hard_veto is True
+    assert "DEFENSE mode" in (decision.veto_reason or "")
+
+
+async def test_wave_chain_3_pucuk_guard() -> None:
+    # When wave has reached Chain #3+ (chain_count >= 2), confidence < 0.60 is blocked
+    reg = _registry(
+        DummyAgent("wave1", division="trend", vote=VOTE_BUY, confidence=0.50, weight=2.0),
+        DummyAgent("wave2", division="technical", vote=VOTE_SELL, confidence=0.30, weight=1.0),
+    )
+
+    def _state() -> SharedState:
+        return SharedState(
+            spread_points=100,
+            daily_pnl_pct=1.0,
+            extra={"remaining_target_usd": 50.0, "h1_vote": -1, "wave_capacity": {"chain_count": 2}},
+        )
+
+    orch = Orchestrator(reg, bus=MemoryBus(), state_builder=_state, broadcast=False)
+    decision = await orch.run_cycle()
+    assert decision.action == ACTION_BUY
+    assert decision.confidence < 0.60
+    assert decision.hard_veto is True
+    assert "CHAIN_3 mode" in (decision.veto_reason or "")
+
+

@@ -152,13 +152,14 @@ class Orchestrator:
             daily_pnl_pct = float(getattr(state, "daily_pnl_pct", 0.0) or 0.0) if state else 0.0
 
             if rem_target is not None and 0 < rem_target <= 20.0:
-                # 1. Finish line lockdown: require high conviction (0.40) to protect profits
-                min_conf_floor = 0.40
+                # 1. Finish line lockdown: require high conviction (0.50) to protect profits
+                min_conf_floor = 0.50
                 mode_label = "FINISH_LINE"
             elif daily_pnl_pct < 0.0:
-                # 2. Defense mode: base 0.25 dynamically scaled up to max 0.30 by drawdown
-                base_def_floor = float(getattr(self.settings, "min_confidence_floor_defense", 0.25) or 0.25)
-                min_conf_floor = round(min(0.30, base_def_floor * (1.0 + min(0.20, abs(daily_pnl_pct) / 50.0))), 4)
+                # 2. Defense mode: strictly enforce high conviction (min 0.50) to eliminate noise & pucuk/lembah entries
+                # Mandated by AGENTS.md Juggler Directive: SPK consensus penalty up to +60% to reject marginal trades
+                base_def_floor = float(getattr(self.settings, "min_confidence_floor_defense", 0.50) or 0.50)
+                min_conf_floor = round(max(0.50, min(0.65, base_def_floor * (1.0 + min(0.30, abs(daily_pnl_pct) / 20.0)))), 4)
                 mode_label = "DEFENSE"
             elif daily_pnl_pct >= 3.0:
                 # 3. Growth mode: agile execution on momentum waves
@@ -169,6 +170,19 @@ class Orchestrator:
                 norm_floor = float(getattr(self.settings, "min_confidence_floor_normal", 0.25) or 0.25)
                 min_conf_floor = norm_floor
                 mode_label = "BALANCED"
+
+            # 5. Wave Chain Overextension Guard (Anti-Pucuk Chaining):
+            # When wave reaches Trade #3+ (chain_count >= 2), require high confidence (>= 0.60)
+            wave_cap = (
+                state.extra.get("wave_capacity")
+                if (state and isinstance(getattr(state, "extra", None), dict))
+                else None
+            )
+            chain_count = int(wave_cap.get("chain_count", 0)) if (wave_cap and isinstance(wave_cap, dict)) else 0
+            if chain_count >= 2:
+                chain_req_floor = 0.65 if daily_pnl_pct < 0 else 0.60
+                min_conf_floor = max(min_conf_floor, chain_req_floor)
+                mode_label += f"_CHAIN_{chain_count+1}"
 
             if decision.confidence < min_conf_floor and not decision.hard_veto:
                 decision.hard_veto = True

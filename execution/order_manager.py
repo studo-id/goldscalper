@@ -266,12 +266,12 @@ class OrderManager:
                 # Enforce dynamic Juggler spacing calibrated to lot size & Dynamic Clamp thresholds:
                 if state is not None:
                     if daily_pnl_pct < 0:
-                        # In DEFENSE mode: spacing 18 pips ($1.80) aligns with 0.04 lot clamp zone,
-                        # allowing Layer 2 to step in before clamp cut while preventing clustering < 18 pips
-                        min_distance_usd = 1.80
+                        # In DEFENSE mode: spacing 30 pips ($3.00) prevents clustering into adverse moves
+                        # and strictly honors AGENTS.md Juggler Directive (>= 30-35 pips separation)
+                        min_distance_usd = 3.00
                     else:
-                        # In NORMAL/GROWTH mode: spacing 15 pips ($1.50)
-                        min_distance_usd = max(1.50, min_distance_usd)
+                        # In NORMAL/GROWTH mode: spacing 20 pips ($2.00)
+                        min_distance_usd = max(2.00, min_distance_usd)
                 else:
                     # When state is None (unit tests), check stalled flag
                     any_stalled = any(
@@ -446,8 +446,8 @@ class OrderManager:
             return ExecutionResult(ok=False, reason=result.comment or "rejected")
 
         fill_price = result.price if result.price is not None else entry
-        trade_id = await self._record(decision, result.ticket, fill_price)
-        await self._notify_opened(decision, fill_price, result.ticket)
+        trade_id = await self._record(decision, result.ticket, fill_price, size=exec_volume)
+        await self._notify_opened(decision, fill_price, result.ticket, size=exec_volume)
         log.info(
             "opened %s %.2f @ %s ticket=%s trade=%s",
             decision.action,
@@ -465,16 +465,21 @@ class OrderManager:
         )
 
     async def _record(
-        self, decision: SPKDecision, ticket: int | None, price: float | None
+        self,
+        decision: SPKDecision,
+        ticket: int | None,
+        price: float | None,
+        size: float | None = None,
     ) -> str | None:
         if self.trade_repo is None:
             return None
+        actual_size = size if size is not None else decision.size
         try:
             return await self.trade_repo.open_trade(
                 {
                     "symbol": self.settings.mt5_symbol,
                     "direction": decision.action,
-                    "size": decision.size,
+                    "size": actual_size,
                     "entry_price": price,
                     "sl": decision.sl,
                     "tp": decision.tp,
@@ -489,16 +494,21 @@ class OrderManager:
             return None
 
     async def _notify_opened(
-        self, decision: SPKDecision, price: float | None, ticket: int | None
+        self,
+        decision: SPKDecision,
+        price: float | None,
+        ticket: int | None,
+        size: float | None = None,
     ) -> None:
         if self.notifier is None:
             return
+        actual_size = size if size is not None else decision.size
         try:
             await self.notifier.trade_opened(
                 {
                     "symbol": self.settings.mt5_symbol,
                     "direction": decision.action,
-                    "size": decision.size,
+                    "size": actual_size,
                     "entry_price": price,
                     "sl": decision.sl,
                     "tp": decision.tp,

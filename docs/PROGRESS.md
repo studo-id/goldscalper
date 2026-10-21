@@ -35,6 +35,32 @@ Aturan singkat:
 
 ---
 
+## 2026-10-21 — Kalibrasi Jarak Layer 2 Rescue (30 Pips), Anti-Pucuk Wave Chain Guard, & Ambang Batas Minimal Confidence Mode DEFENSE
+
+**Phase / Area:** Phase 14 / Execution Layer & Orchestrator Governance  
+**Status:** Done  
+
+**Yang dikerjakan**
+- **Audit Tiket #4908643694, #4908646855, dan #4908708161:**
+  1. *Tiket #4908643694 (SELL) & #4908646855 (Layer 2 Rescue):* Terjadi *double-loss* karena jarak Layer 2 rescue di mode DEFENSE sebelumnya hanya diset $1.80 (18 pips), sehingga saat harga memantul tipis 16 pips dari support 4,121, Layer 2 langsung terpicu terlalu rapat.
+  2. *Tiket #4908708161 (BUY @ 4,134.12 Pucuk):* Mengalami *blind chaining* Trade #3 di gelombang BUY yang sudah *exhausted* (kehabisan napas) dengan keyakinan sangat lemah (`spk_confidence = 0.3453`, divisi Technical bahkan sudah -0.80).
+- **Penerapan Kalibrasi Terpadu:**
+  1. **Jarak Layer 2 di Mode DEFENSE ([execution/order_manager.py](file:///c:/Users/STUDO/Documents/Project/APPS/trading/GoldScalper/execution/order_manager.py)):** Dinaikkan dari 18 pips ($1.80) menjadi minimal **30 pips ($3.00)** sesuai mandat mutlak [AGENTS.md](file:///c:/Users/STUDO/Documents/Project/APPS/trading/GoldScalper/AGENTS.md) The Juggler Directive ($\ge 30-35$ pips). Mencegah posisi averaging terseret rally/dump tajam.
+  2. **Ambang Batas Minimal Confidence Mode DEFENSE ([agents/orchestrator.py](file:///c:/Users/STUDO/Documents/Project/APPS/trading/GoldScalper/agents/orchestrator.py)):** Dinaikkan dari baseline 0.25-0.30 menjadi minimal **0.50 - 0.65** saat portofolio berada dalam zona drawdown (`daily_pnl_pct < 0`). Trade marjinal dengan confidence rendah (seperti 0.34 dan 0.49) otomatis di-hard veto `LOW CONFIDENCE`.
+  3. **Wave Chain Overextension Guard (Chain #3+ Anti-Pucuk):** Ketika suatu gelombang trend sudah mencapai Trade #3 ke atas (`chain_count >= 2`), ambang batas keyakinan minimal otomatis dinaikkan ke **$\ge 0.60$ (atau $\ge 0.65$ di DEFENSE mode)**. Mencegah bot membeli di pucuk rally atau menjual di lembah dump.
+  4. **Presisi Pencatatan Lot Multi-Entry:** Memperbaiki passing parameter `size=exec_volume` ke `_record` dan `_notify_opened` di `order_manager.py`, memastikan record database dan websocket UI menampilkan lot riil MT5 (0.02) bukan default SPK (0.04).
+
+**File tersentuh**
+- `agents/orchestrator.py` — Implementasi `min_conf_floor >= 0.50` di mode DEFENSE dan `min_conf_floor >= 0.60-0.65` untuk Chain #3+.
+- `execution/order_manager.py` — Kalibrasi `min_distance_usd = 3.00` di mode DEFENSE dan passing presisi volume riil ke DB/notifikasi.
+- `tests/test_execution.py` — Penyesuaian test case multi-entry rescue spacing mode DEFENSE ke 30 pips ($3.00).
+- `tests/test_orchestrator.py` — Penambahan unit test `test_defense_mode_min_confidence_floor` dan `test_wave_chain_3_pucuk_guard`.
+
+**Verifikasi**
+- `pytest tests/test_execution.py tests/test_orchestrator.py tests/test_wave_engine.py` → 42 passed in 0.34s.
+
+---
+
 ## 2026-10-21 — Protokol Tabayun & Anti-Climax Retest Breakdown/Breakout (`execution/order_manager.py`)
 
 **Phase / Area:** Phase 14 / Execution Layer & Institutional Price Action  

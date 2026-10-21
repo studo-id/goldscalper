@@ -494,14 +494,14 @@ async def test_rescue_defense_mode_spacing_and_lot_cap() -> None:
     assert first is not None and first.ok
     assert first.size == 0.04
 
-    # 2. Attempt rescue at 2348.8 (dist=1.20 USD = 12 pips) -> Rejected (too close, min 18 pips / $1.80)
-    second_too_close = await om.execute(_decision(entry=2348.8, size=0.04), state=state)
+    # 2. Attempt rescue at 2348.1 (dist=1.90 USD = 19 pips) -> Rejected (too close, min 30 pips / $3.00 in DEFENSE mode)
+    second_too_close = await om.execute(_decision(entry=2348.1, size=0.04), state=state)
     assert second_too_close is not None and not second_too_close.ok
     assert "distance too close" in (second_too_close.reason or "")
 
-    # 3. Attempt rescue at 2348.1 (dist=1.90 USD = 19 pips >= 18 pips) -> Approved!
+    # 3. Attempt rescue at 2346.8 (dist=3.20 USD = 32 pips >= 30 pips) -> Approved!
     # And volume MUST be capped at 0.02 lot in DEFENSE mode!
-    second_ok = await om.execute(_decision(entry=2348.1, size=0.04), state=state)
+    second_ok = await om.execute(_decision(entry=2346.8, size=0.04), state=state)
     assert second_ok is not None and second_ok.ok
     assert second_ok.size == 0.02  # Defense lot conservation cap!
 
