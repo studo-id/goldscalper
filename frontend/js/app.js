@@ -242,7 +242,13 @@ function updateTopbar() {
   }
 
   const eq = t?.equity != null ? t.equity : state.performance?.stats?.final_equity;
-  set("m-equity", eq != null ? `$${Math.round(eq).toLocaleString("en-US")}` : "—");
+  const curr = t?.currency || "USD";
+  if (eq != null) {
+    const formattedVal = Number(eq).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    set("m-equity", curr === "USC" ? `${formattedVal} USC` : `$${formattedVal}`);
+  } else {
+    set("m-equity", "—");
+  }
 
   const conf = d?.confidence != null ? `${Math.round(d.confidence * 100)}%` : "—";
   set("m-conf", conf);

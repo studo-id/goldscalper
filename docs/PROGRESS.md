@@ -35,6 +35,37 @@ Aturan singkat:
 
 ---
 
+## 2026-10-21 — Kalibrasi Sinkronisasi Real Equity & Balance Akun Cent (USC) dari MT5 Bridge
+
+**Phase / Area:** Phase 14 / Execution Layer & Live Broker Integration  
+**Status:** Done  
+
+**Yang dikerjakan**
+- **Root Cause Analysis Inkonsistensi Equity:**
+  - Metode `BridgeMT5Client.account_info()` sebelumnya memanggil `GET /health` yang hanya mengembalikan status koneksi tanpa atribut `"account"`.
+  - Hal ini menyebabkan `_safe_account_info()` di runtime menerima dictionary kosong `{}` dan fallback ke nilai default `$10,000.00`.
+- **Perbaikan MT5 Connector (`core/mt5_connector.py`):**
+  - Mengubah `BridgeMT5Client.account_info()` untuk memanggil `GET /account` yang menyediakan snapshot riil MT5: `balance`, `equity`, `margin`, `currency`, dan `trade_allowed`.
+  - Menyediakan fallback aman ke `GET /health` jika `/account` tidak tersedia.
+- **Dynamic SOD Anchoring & Currency Tracking (`runtime.py`):**
+  - Menambahkan tracking dinamis `self._account_currency` (misal `"USC"` atau `"USD"`).
+  - Memperbaiki anchoring `self._sod_balance`: ketika akun riil pertama kali terdeteksi (`has_real_acc`), baseline start-of-day langsung diikatkan ke saldo riil akun cent (`6,439.72 USC`), mencegah kalkulasi false drawdown/halt.
+  - Menyertakan field `currency` dalam broadcast WebSocket telemetri `/ws/telemetry`.
+- **Formatting Equity UI (`frontend/js/app.js`):**
+  - Topbar metric `#m-equity` kini memformat saldo secara dinamis sesuai mata uang akun: menampilkan `6,439.72 USC` untuk akun Cent dan `$6,439.72` untuk akun USD.
+
+**File tersentuh**
+- [core/mt5_connector.py](file:///c:/Users/STUDO/Documents/Project/APPS/trading/GoldScalper/core/mt5_connector.py) — endpoint bridge `/account` dipanggil untuk live balance & equity
+- [runtime.py](file:///c:/Users/STUDO/Documents/Project/APPS/trading/GoldScalper/runtime.py) — dynamic currency, sod_balance anchoring, dan payload telemetri
+- [frontend/js/app.js](file:///c:/Users/STUDO/Documents/Project/APPS/trading/GoldScalper/frontend/js/app.js) — format equity dinamis (USC vs USD)
+- [docs/PROGRESS.md](file:///c:/Users/STUDO/Documents/Project/APPS/trading/GoldScalper/docs/PROGRESS.md) — dokumentasi worklog
+
+**Verifikasi**
+- `pytest tests/test_execution.py` → 29 passed
+- Verifikasi telemetri live VPS pasca deploy.
+
+---
+
 ## 2026-10-21 — Migrasi Akun Real: GoldScalper ke Akun Cent (USC) & AcengGold ke Akun Standard ($10 Sniper)
 
 **Phase / Area:** Phase 14 / Execution Layer & Live Broker Migration  

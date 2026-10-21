@@ -725,11 +725,18 @@ class BridgeMT5Client:
         if not self._client:
             return {}
         try:
-            resp = await self._client.get("/health")
+            resp = await self._client.get("/account")
             if resp.status_code == 200:
                 data = resp.json()
-                self._trade_allowed = bool(data.get("trade_allowed", True))
-                return data.get("account") or {}
+                if isinstance(data, dict) and ("balance" in data or "equity" in data):
+                    self._trade_allowed = bool(data.get("trade_allowed", True))
+                    return data
+            resp_h = await self._client.get("/health")
+            if resp_h.status_code == 200:
+                data_h = resp_h.json()
+                self._trade_allowed = bool(data_h.get("trade_allowed", True))
+                if isinstance(data_h.get("account"), dict):
+                    return data_h["account"]
         except Exception:
             pass
         return {}

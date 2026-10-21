@@ -126,6 +126,8 @@ class Runtime:
         self.orders_placed = 0
         self._last_equity: float = 10000.0
         self._last_balance: float = 10000.0
+        self._account_currency: str = "USD"
+        self._sod_is_default: bool = True
 
         # --- Scalper Radar Watchdog Trackers ---
         self._last_order_placed_at: datetime = utcnow()
@@ -243,17 +245,21 @@ class Runtime:
         positions = await self._safe_positions()
         acc_info = await self._safe_account_info()
         unrealized = sum(float(getattr(p, "profit", 0.0) or 0.0) for p in positions)
-        balance = float(acc_info.get("balance") or 10000.0)
+        has_real_acc = bool(acc_info and ("balance" in acc_info or "equity" in acc_info))
+        balance = float(acc_info.get("balance") or (self._last_balance if not self._sod_is_default else 10000.0))
         equity = float(acc_info.get("equity") or (balance + unrealized))
 
         self._last_equity = equity
         self._last_balance = balance
+        if has_real_acc and "currency" in acc_info:
+            self._account_currency = str(acc_info.get("currency") or "USD")
 
         # --- The Juggler & BizDev Day Rollover & PnL Engine ---
         today_date = now_dt.astimezone(WIB).date()
         if today_date != self._sod_date:
             self._sod_date = today_date
-            self._sod_balance = balance
+            self._sod_balance = balance if has_real_acc else None
+            self._sod_is_default = not has_real_acc
             self._daily_realized_pnl = 0.0
             self._daily_gross_profit = 0.0
             self._daily_gross_loss = 0.0
@@ -261,10 +267,10 @@ class Runtime:
             self._daily_friction_cost = 0.0
             self._daily_win_count = 0
             self._live_avg_win = 0.0
-        elif self._sod_balance is None and balance > 0:
+        elif (self._sod_balance is None or self._sod_is_default) and has_real_acc:
             # Reconstruct true start-of-day balance using preloaded realized PnL from DB
-            # e.g. If balance now is $9,435 and realized_pnl is -$565, sod_b = 9435 - (-565) = $10,000!
-            self._sod_balance = max(100.0, balance - self._daily_realized_pnl)
+            self._sod_balance = max(10.0, balance - self._daily_realized_pnl)
+            self._sod_is_default = False
 
         sod_b = self._sod_balance or balance
         daily_pnl = (equity - sod_b) if sod_b > 0 else 0.0
@@ -1024,6 +1030,7 @@ class Runtime:
             "positions": positions_list,
             "equity": self._last_equity,
             "balance": self._last_balance,
+            "currency": getattr(self, "_account_currency", "USD"),
             "cooldown_remaining_s": cd_rem,
             "cooldown_reason": cd_reason,
             "news_blackout": is_news_blackout,
@@ -1031,15 +1038,15 @@ class Runtime:
             "juggler": {
                 "enabled": self.settings.juggler_enabled,
                 "daily_target_pct": self.settings.daily_profit_target_pct,
-                "daily_pnl_pct": round(((self._last_equity - (self._sod_balance or self._last_balance or 10000.0)) / (self._sod_balance or self._last_balance or 10000.0) * 100.0), 2),
-                "progress_pct": min(100.0, max(0.0, round((((self._last_equity - (self._sod_balance or self._last_balance or 10000.0)) / (self._sod_balance or self._last_balance or 10000.0) * 100.0) / max(0.01, self.settings.daily_profit_target_pct) * 100.0), 1))),
-                "status": "LOCKED" if (self.settings.juggler_enabled and self.settings.daily_profit_lock_enabled and ((self._last_equity - (self._sod_balance or self._last_balance or 10000.0)) / (self._sod_balance or self._last_balance or 10000.0) * 100.0) >= self.settings.daily_profit_target_pct) else "ACTIVE",
+                "daily_pnl_pct": round(((self._last_equity - (self._sod_balance or self._last_balance or 10000.0)) / max(1.0, (self._sod_balance or self._last_balance or 10000.0)) * 100.0), 2),
+                "progress_pct": min(100.0, max(0.0, round((((self._last_equity - (self._sod_balance or self._last_balance or 10000.0)) / max(1.0, (self._sod_balance or self._last_balance or 10000.0)) * 100.0) / max(0.01, self.settings.daily_profit_target_pct) * 100.0), 1))),
+                "status": "LOCKED" if (self.settings.juggler_enabled and self.settings.daily_profit_lock_enabled and ((self._last_equity - (self._sod_balance or self._last_balance or 10000.0)) / max(1.0, (self._sod_balance or self._last_balance or 10000.0)) * 100.0) >= self.settings.daily_profit_target_pct) else "ACTIVE",
                 "daily_realized_pnl": round(self._daily_realized_pnl, 2),
                 "remaining_usd": max(0.0, round(((self._sod_balance or self._last_balance or 10000.0) * (self.settings.daily_profit_target_pct / 100.0)) - self._daily_realized_pnl, 2)),
                 "profit_locked": (
                     self.settings.juggler_enabled
                     and self.settings.daily_profit_lock_enabled
-                    and ((self._last_equity - (self._sod_balance or self._last_balance or 10000.0)) / (self._sod_balance or self._last_balance or 10000.0) * 100.0) >= self.settings.daily_profit_target_pct
+                    and ((self._last_equity - (self._sod_balance or self._last_balance or 10000.0)) / max(1.0, (self._sod_balance or self._last_balance or 10000.0)) * 100.0) >= self.settings.daily_profit_target_pct
                 ),
                 "hard_clamp_usd": self.settings.hard_loss_clamp_usd,
                 "live_avg_win": self._live_avg_win,
