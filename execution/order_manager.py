@@ -582,12 +582,6 @@ class OrderManager:
                             True,
                             f"Blocked SELL probing below support floor (${cluster_support:.2f}, entry=${entry:.2f}) without confirmed M5 candle close",
                         )
-                    # Scalper Runway Exception: only if ample distance >= 1.50 AND clean macro bear trend
-                    if dist_to_support >= 1.50 and (
-                        market_regime in ("TRENDING_BEAR", "EXPANSION_BEAR")
-                        and struct_event in ("LH_LL", "BEAR_TREND", "BREAKDOWN")
-                    ):
-                        return False, ""
                     return (
                         True,
                         f"Blocked SELL near support floor (${cluster_support:.2f}, dist={dist_to_support:.2f}, buffer={sr_buffer:.2f}) without confirmed M5 breakdown close",
@@ -608,12 +602,6 @@ class OrderManager:
                             True,
                             f"Blocked BUY probing above resistance ceiling (${cluster_resistance:.2f}, entry=${entry:.2f}) without confirmed M5 candle close",
                         )
-                    # Scalper Runway Exception: only if ample distance >= 1.50 AND clean macro bull trend
-                    if dist_to_res >= 1.50 and (
-                        market_regime in ("TRENDING_BULL", "EXPANSION_BULL")
-                        and struct_event in ("HH_HL", "BULL_TREND", "BREAKOUT")
-                    ):
-                        return False, ""
                     return (
                         True,
                         f"Blocked BUY near resistance ceiling (${cluster_resistance:.2f}, dist={dist_to_res:.2f}, buffer={sr_buffer:.2f}) without confirmed M5 breakout close",

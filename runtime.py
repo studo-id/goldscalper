@@ -434,7 +434,7 @@ class Runtime:
                         log_tag = "TP" if is_win else "COLLECTIVE CUT"
                         log.info("BASKET %s EXECUTED for %d %s positions", log_tag, len(group), side_name)
                         if is_win:
-                            self.order_manager.arm_cooldown(25, reason="post_basket_tp")
+                            self.order_manager.arm_cooldown(45, reason="post_basket_tp")
                             if self.settings.predator_reload_enabled:
                                 self._predator_reload_side = side_name
                                 self._predator_reload_expiry = utcnow() + timedelta(seconds=self.settings.predator_reload_window_s)
@@ -501,7 +501,7 @@ class Runtime:
                         self.order_manager.arm_m1_candle_cooldown(60, reason="post_cutloss_clamp")
                     elif any("harvest" in a or "tp" in a for a in act):
                         regime = (self.orchestrator.last_state.extra.get("market_regime") if (self.orchestrator.last_state and self.orchestrator.last_state.extra) else "SIDEWAY")
-                        win_cd = 15 if "TRENDING" in str(regime) else 20
+                        win_cd = 45 if "TRENDING" in str(regime) else 60
                         self.order_manager.arm_cooldown(win_cd, reason="post_profit_harvest")
                 except Exception as exc:  # noqa: BLE001
                     log.warning("position manage failed (%s): %s", ticket, exc)
@@ -528,7 +528,7 @@ class Runtime:
         if not self._trades:
             if pnl > 0:
                 regime = (self.orchestrator.last_state.extra.get("market_regime") if (self.orchestrator.last_state and self.orchestrator.last_state.extra) else "SIDEWAY")
-                win_cd = 15 if "TRENDING" in str(regime) else 20
+                win_cd = 45 if "TRENDING" in str(regime) else 60
                 self.order_manager.arm_cooldown(win_cd, reason="post_win_chaining")
             else:
                 self.order_manager.arm_m1_candle_cooldown(60, reason="post_trade_cutloss")

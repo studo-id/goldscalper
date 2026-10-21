@@ -633,9 +633,43 @@ async def test_order_manager_initial_entry_falling_knife_guard() -> None:
     assert res_sell is not None and not res_sell.ok
     assert "rocket surge guard" in (res_sell.reason or "")
 
+async def test_order_manager_sr_boundary_blocks_without_confirmed_breakout() -> None:
+    """Verify that BUY near/above resistance ceiling is strictly blocked without confirmed M5 breakout close."""
+    client = MockMT5Client()
+    om = OrderManager(client=client, settings=settings)
 
+    st = SharedState(
+        symbol="XAUUSDm",
+        extra={
+            "market_regime": "TRENDING_BULL",
+            "sr_resistance": 4141.93,
+            "sr_support": 4125.00,
+            "struct_event": "HH_HL",
+        },
+        frames={
+            "M5": [
+                {"open": 4125.0, "high": 4130.0, "low": 4125.0, "close": 4129.0},
+                {"open": 4129.0, "high": 4135.0, "low": 4128.0, "close": 4134.0},
+                {"open": 4134.0, "high": 4138.0, "low": 4133.0, "close": 4137.0},
+                {"open": 4137.0, "high": 4141.93, "low": 4136.0, "close": 4140.0},
+                {"open": 4140.0, "high": 4141.5, "low": 4138.0, "close": 4139.0},  # unconfirmed close below ceiling
+            ]
+        },
+    )
 
+    # 1. Entry at 4139.76 (dist to res 2.17, inside 3.50 buffer) -> MUST BE BLOCKED (Ticket #4908250924 scenario)
+    blocked, reason = om._check_dynamic_sr_boundary(ACTION_BUY, 4139.76, st)
+    assert blocked is True
+    assert "Blocked BUY near resistance ceiling" in reason
 
+    # 2. Entry probing above resistance at 4142.10 without confirmed M5 close -> MUST BE BLOCKED
+    blocked_above, reason_above = om._check_dynamic_sr_boundary(ACTION_BUY, 4142.10, st)
+    assert blocked_above is True
+    assert "Blocked BUY probing above resistance ceiling" in reason_above
 
+    # 3. Confirmed M5 close breakout > 4141.93 + 0.50 (e.g. 4142.50) -> ALLOWED
+    st.frames["M5"][-1]["close"] = 4142.60
+    blocked_breakout, _ = om._check_dynamic_sr_boundary(ACTION_BUY, 4143.00, st)
+    assert blocked_breakout is False
 
 

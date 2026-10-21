@@ -35,6 +35,32 @@ Aturan singkat:
 
 ---
 
+## 2026-10-21 — Eliminasi Scalper Runway Exception & Perpanjangan Post-Win Cooldown (`execution/order_manager.py`, `runtime.py`)
+
+**Phase / Area:** Phase 14 / Execution Layer & Anti-FOMO Gate  
+**Status:** Done  
+
+**Yang dikerjakan**
+- **Audit Kasus Tiket #4908250924 (BUY @ 4139.76):**
+  1. Entry terjadi tepat di bawah batas resistance M5 (4141.93, jarak hanya 2.17 USD / 21.7 pips) karena adanya `Scalper Runway Exception` (`dist_to_res >= 1.50` dengan tren bull) yang memperbolehkan order masuk di bawah atap resistance tanpa konfirmasi breakout M5.
+  2. Tiket sebelumnya (#4908247234) baru saja take profit di 13:25:32; jeda `post_win_chaining` hanya 15 detik sehingga langsung memicu re-entry FOMO di harga pucuk (13:25:48) saat pergerakan harga telah jenuh.
+- **Eliminasi Total Scalper Runway Exception:** Menghapus pengecualian `dist >= 1.50` pada `_check_dynamic_sr_boundary` di `execution/order_manager.py`. Seluruh order BUY di dalam zona buffer resistance (s/d 35 pips) atau di atas resistance wajib memiliki penutupan candle M5 (*confirmed breakout close*) di atas `resistance + $0.50`. Begitu juga untuk SELL di zona support floor.
+- **Perpanjangan Post-Win Cooldown (45–60 Detik):** Memperpanjang jeda pasca kemenangan pada `runtime.py` (`post_win_chaining`, `post_profit_harvest`, `post_basket_tp`) dari sebelumnya 15–25 detik menjadi **45–60 detik** (45s untuk market trending, 60s untuk sideway). Memberikan waktu bagi pasar untuk menyelesaikan siklus pump/dump, meredakan exhaustion, dan membentuk pullback sehat sebelum membuka posisi baru.
+- **Unit Tests:** Menambahkan `test_order_manager_sr_boundary_blocks_without_confirmed_breakout` pada `tests/test_execution.py`.
+
+**File tersentuh**
+- `execution/order_manager.py` — Eliminasi Scalper Runway Exception dari dynamic S/R gate.
+- `runtime.py` — Perpanjangan post-win & post-harvest cooldown menjadi 45–60 detik.
+- `tests/test_execution.py` — Unit test verifikasi pemblokiran buy dekat atap resistance tanpa konfirmasi M5 close.
+
+**Verifikasi**
+- `pytest tests/test_execution.py tests/test_structural_guard.py tests/test_technical_division.py` → 59 passed in 0.34s.
+
+**Catatan / Next**
+- Bot di server di-restart dengan aturan boundary baru yang lebih ketat.
+
+---
+
 ## 2026-10-21 — SATPAM M1 Candle Close SL Confirmation & Initial Entry Falling Knife Guard (`execution/structural_guard.py`, `execution/order_manager.py`)
 
 **Phase / Area:** Phase 14 / Execution Layer & Anti-Bleeding Matrix  
