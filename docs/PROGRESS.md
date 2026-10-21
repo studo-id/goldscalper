@@ -35,6 +35,33 @@ Aturan singkat:
 
 ---
 
+## 2026-10-21 — Resolusi Tabrakan Logika: Enforce Rescue Basket Unity Shield & Collective Exit Exclusivity
+
+**Phase / Area:** Execution Layer (`execution/position_manager.py`, `runtime.py`, `tests/test_execution.py`, `docs/MULTI_ENTRY_RESCUE_SPEC.md`, `docs/PROGRESS.md`)  
+**Status:** Done & Verified
+
+**Yang dikerjakan:**
+1. **Analisa & Investigasi Kasus Tabrakan Dua Entry Riil (Ticket 4904989488 & 4904994829):**
+   - Ditemukan kebocoran logika (*basket isolation leak*) di mana Ticket `4904989488` (Layer 1 SELL @ 4,107.45) dipotong rugi sepihak di detik 124s oleh `JUGGLER DURATION-LOSS CUT` (-$6.79), padahal Ticket `4904994829` (Layer 2 SELL @ 4,110.46) baru dibuka 64 detik sebelumnya sebagai posisi penyelamat (*rescue recovery*).
+   - Selang 9 detik kemudian, harga berbalik turun tajam ke 4,108.45 sehingga Layer 2 panen TP solo (+$8.02).
+   - Pemotongan sepihak ini memicu kontradiksi status pada Wave Engine (gelombang dinyatakan "patah" di 01:21:07 lalu dinyatakan "utuh/menang" di 01:21:16) serta membuang potensi net profit keranjang sebesar +$4.02 (hanya terealisasi net +$1.23).
+2. **Penerapan Rescue Basket Unity Shield di [execution/position_manager.py](file:///c:/Users/STUDO/Documents/Project/APPS/trading/GoldScalper/execution/position_manager.py):**
+   - Menambahkan guard `is_in_rescue_basket`: Jika sebuah tiket terdaftar dalam keranjang penyelamat multi-layer yang aktif, SEMUA fase cutloss individual (Phase 1 Watchdog, Phase 2 HTF breakdown, Phase 3 Clamp, Phase 4 Duration Cut, Phase 5 Time Decay) dan exit parsial/BEP **DIBYPASS 100%**.
+   - Seluruh pengelolaan exit (TP, cutloss kolektif, trailing, dan salvaging) dialihkan secara eksklusif ke `manage_basket()`.
+3. **Penguatan Mekanisme di `manage_basket()`:**
+   - **Fast Salvage for Rescue Basket:** Jika keranjang penyelamat tertahan $\ge 90$s dan net profit gabungan mencapai $\ge +\$0.80$, keranjang langsung dilikuidasi serentak dengan profit hijau tanpa risiko ditarik floating minus kembali.
+   - **Solid Runner Harvest for Rescue Basket:** Jika net profit keranjang menyentuh $\ge +\$6.00$ (atau $75\times\text{lot}$), keranjang langsung di-harvest bersama.
+   - **Collective Stagnation Cutloss:** Jika adverse move bertahan $\ge 240$s dengan kerugian persisten, seluruh posisi dipotong bersama secara kolektif (tidak pernah satu posisi ditinggalkan sendirian).
+   - **Akurasi Action Tag:** Membedakan action tag `basket_tp_closed` vs `basket_cut_closed`.
+4. **Sinkronisasi Wave Engine di [runtime.py](file:///c:/Users/STUDO/Documents/Project/APPS/trading/GoldScalper/runtime.py):**
+   - Di `_run_loop()`, saat `manage_basket()` mengeksekusi penutupan keranjang, setiap tiket ditandai `basket_outcome_win`.
+   - Di `_finalize_closed()`, trade yang merupakan bagian dari winning basket dicatat sebagai kemenangan bagi `wave_engine`, mengeliminasi false alarm "gelombang patah" saat Layer 1 memiliki PnL negatif individual.
+5. **Unit Testing & Verifikasi:**
+   - [tests/test_execution.py](file:///c:/Users/STUDO/Documents/Project/APPS/trading/GoldScalper/tests/test_execution.py): Menambahkan test case `test_rescue_basket_bypasses_individual_clamp_and_bep` yang memvalidasi bahwa saat posisi berada di dalam rescue basket, durasi 125s dan loss -$6.79 tidak akan dipotong individual, melainkan diselesaikan secara kolektif via `manage_basket()` fast salvage.
+   - Seluruh 55 unit tests di `test_execution.py` dan `test_spk_veto.py` PASS 100%.
+
+---
+
 ## 2026-10-21 — Implementasi Proteksi Counter-Trend Defense (H1+D1 Macro Trend Gating)
 
 **Phase / Area:** SPK Veto Engine, Settings, Orchestrator (`spk/veto.py`, `config/settings.py`, `agents/orchestrator.py`, `tests/test_spk_veto.py`, `docs/QUANT_FINENG_BIZDEV_SPEC.md`)

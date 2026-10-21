@@ -124,6 +124,18 @@ Jika harga terus menembus zona invalidasi struktural terakhir dan kerugian total
   - **7 Menit (420s):** Jika posisi tertahan $\ge 7$ menit dan profit $\ge +\$0.50$ (walau tipis) $\rightarrow$ langsung tutup (*time-decay salvage*) demi menyelamatkan modal.
   - **15 Menit (900s):** Batas waktu maksimal (*hard time-stop*).
 
+### 4.5 Rescue Basket Unity Shield & Collective Exit Exclusivity (Hukum Sistem Mutlak)
+- **Problem Statement (Basket Isolation Leak):** Jika salah satu layer penyelamatan dipotong rugi secara individual (misal karena durasi menahan $\ge 90$s / 120s), layer penyelamat lainnya akan tertinggal sebagai posisi solo tanpa pelindung (*stranded naked position*), merusak perhitungan titik impas gabungan, dan memicu kontradiksi sinyal pada Wave Engine.
+- **Hukum Kesatuan Keranjang (Unity Shield):**
+  1. Posisi yang terdaftar dalam `rescue_basket_tickets` **KEBAL 100%** dari seluruh fase pemotongan rugi dan take profit individual di `PositionManager.manage()` (Phase 1 Watchdog Early Cut, Phase 2 HTF Breakdown Cut, Phase 3 Clamp, Phase 4 Duration Stagnation Cut, Phase 5 Time Decay, individual Fast Break-Even Lock, dan individual Runner Harvest).
+  2. Seluruh eksekusi exit didelegasikan secara **Eksklusif dan Kolektif** kepada `PositionManager.manage_basket()`:
+     - **Dynamic Target TP:** Rata-rata entry keranjang $\pm$ buffer pips.
+     - **Rescue Fast Salvage:** Jika keranjang tertahan $\ge 90$ detik dan total net profit gabungan mencapai $\ge +\$0.80$, keranjang langsung dilikuidasi serentak dengan keuntungan hijau bersih.
+     - **Solid Basket Runner TP:** Jika net profit keranjang mencapai $\ge +\$6.00$ (atau $75\times\text{lot}$), seluruh posisi di-harvest serentak.
+     - **Collective Stagnation Cutloss:** Jika adverse move bertahan $\ge 240$ detik dengan total kerugian melampaui plafon stagnasi, seluruh posisi ditutup bersama untuk melindungi modal.
+     - **Catastrophic Loss Guard:** Batas maksimal kerugian basket mutlak ($-\$38.00$).
+  3. **Wave Engine Synchronization:** Penutupan keranjang yang menghasilkan net profit positif dicatat sebagai kemenangan utuh (*win*) di Wave Engine untuk seluruh tiket anggota keranjang, mencegah gelombang dianggap patah akibat PnL individual salah satu leg.
+
 ---
 
 ## 5. Konfigurasi Parameter (Settings & Environment)

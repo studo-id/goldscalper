@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from agents.base import AgentSignal
 from agents.state import UTC, SharedState, utcnow
 from config.settings import settings
-from core.mt5_connector import SIDE_BUY, MockMT5Client, OrderRequest, Position
+from core.mt5_connector import SIDE_BUY, SIDE_SELL, MockMT5Client, OrderRequest, Position
 from core.notifier import Notifier
 from execution.order_manager import OrderManager
 from execution.position_manager import PositionManager
@@ -397,18 +397,29 @@ async def test_rescue_basket_bypasses_individual_clamp_and_bep() -> None:
     now = utcnow()
     pos = await _open_position(client, sl=2335.0, volume=0.08)
     pm.track(pos)
-    pm._states[pos.ticket].opened_at = now - timedelta(seconds=65)
+    # Position held 125s in active rescue basket with adverse move -$6.79
+    pm._states[pos.ticket].opened_at = now - timedelta(seconds=125)
+    pos.profit = -6.79
 
-    # Position is in active rescue basket: Even with -$30.00 loss, individual clamp is bypassed!
-    pos.profit = -30.00
+    # In rescue basket: duration loss cut (Phase 4) and dynamic clamp (Phase 3) are completely bypassed!
     actions = await pm.manage(pos, price=2349.5, now=now, context={"in_rescue_basket": True})
-    assert "juggler_dynamic_clamp" not in actions
+    assert actions == []
     assert len(await client.positions("XAUUSD")) == 1
 
-    # And even with profit +$2.50, individual BEP lock is bypassed so Layer 2 stays unified
-    pos.profit = 2.50
+    # In rescue basket: individual runner harvest and BEP lock are also bypassed to preserve basket unity
+    pos.profit = 8.02
     actions_tp = await pm.manage(pos, price=2350.5, now=now, context={"in_rescue_basket": True})
-    assert "breakeven_locked" not in actions_tp
+    assert actions_tp == []
+    assert len(await client.positions("XAUUSD")) == 1
+
+    # But when manage_basket runs on the full collective basket, fast salvage unlocks profit together!
+    pos1 = Position(ticket=101, symbol="XAUUSD", side=SIDE_SELL, volume=0.04, price_open=4107.45, price_current=4108.45, profit=-4.00, time=now - timedelta(seconds=125))
+    pos2 = Position(ticket=102, symbol="XAUUSD", side=SIDE_SELL, volume=0.04, price_open=4110.46, price_current=4108.45, profit=8.02, time=now - timedelta(seconds=64))
+    pm.settings.basket_trailing_enabled = False
+    basket_act = await pm.manage_basket([pos1, pos2], current_bid=4108.45, current_ask=4108.55)
+    assert "basket_tp_closed" in basket_act
+    assert pos1.ticket not in pm._states
+    assert pos2.ticket not in pm._states
 
 
 async def test_instant_runner_harvest_at_any_time() -> None:

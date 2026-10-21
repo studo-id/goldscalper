@@ -210,14 +210,16 @@ class PositionManager:
         moment = now or utcnow()
         actions: list[str] = []
         ctx = context or {}
+        is_in_rescue_basket = bool(ctx.get("in_rescue_basket", False))
         watchdogs = evaluate_multi_tf_watchdogs(pos.side, ctx)
         htf_bias = watchdogs["htf"]
 
         held = (moment - state.opened_at).total_seconds() if state.opened_at is not None else 0.0
 
         # Smart Multi-Timeframe Watchdog Time Stop (Menggantikan 900s dumb timer)
+        # Standalone positions only; rescue baskets are managed collectively via manage_basket
         max_hold = s.max_hold_seconds
-        if state.opened_at is not None and held >= max_hold:
+        if not is_in_rescue_basket and state.opened_at is not None and held >= max_hold:
             can_extend = s.watchdog_enabled and watchdogs["can_extend_time"]
             extended_limit = max_hold + getattr(s, "watchdog_time_extension_seconds", 300)
             if can_extend and held < extended_limit:
@@ -253,6 +255,22 @@ class PositionManager:
             await self.client.close_position(pos.ticket, price=price)
             self.untrack(pos.ticket)
             actions.append("overnight_flat_cutoff")
+            return actions
+
+        # --- RESCUE BASKET UNITY SHIELD ---
+        # When this ticket is part of an active multi-layer rescue basket (averaging down),
+        # ALL exit decisions (cutloss, duration cuts, breakeven, trailing, TP, salvage)
+        # MUST BE 100% EXCLUSIVELY managed collectively by manage_basket().
+        # Cutting or closing individual legs in isolation destroys the rescue math,
+        # breaks wave engine continuity, and strands the counterpart position!
+        if is_in_rescue_basket:
+            log.debug(
+                "RESCUE BASKET SHIELD: Ticket %s (%s %.2f, pnl=%.2f) delegated exclusively to manage_basket()",
+                pos.ticket,
+                pos.side,
+                pos.volume,
+                float(pos.profit or 0.0),
+            )
             return actions
 
         # --- THE JUGGLER: Dynamic Anti-Bleeding & In-Flight Reversal Matrix ---
@@ -680,6 +698,29 @@ class PositionManager:
                 if not reached_target and total_profit >= min_basket_profit:
                     reached_target = True
 
+                # Rescue Basket Solid Runner TP: if aggregate profit reaches solid runner target ($6.00+)
+                solid_basket_tp = max(6.0, round(basket["total_volume"] * 75.0, 2))
+                if total_profit >= solid_basket_tp:
+                    reached_target = True
+
+                # Rescue Basket Fast Salvage: if held >= 90s and aggregate profit >= $0.80, unlock immediately
+                now_dt = utcnow()
+                max_held = max(
+                    (now_dt - (p.time or now_dt)).total_seconds() for p in positions
+                )
+                if max_held >= 90 and total_profit >= 0.80:
+                    reached_target = True
+
+                # Collective Stagnation Loss Cut: if rescue basket held >= 240s with persistent net loss
+                # cut all positions collectively (never stranded individually)
+                stagnation_ceiling = max(20.0, round(basket["total_volume"] * 1.50 * 100.0, 2))
+                if max_held >= 240 and total_profit <= -stagnation_ceiling:
+                    triggered = True
+                    log.warning(
+                        "BASKET STAGNATION CUT: Closing all %d %s positions collectively (held %ds, net_loss=%.2f <= -$%.2f)",
+                        len(positions), dominant_side, int(max_held), total_profit, stagnation_ceiling,
+                    )
+
         triggered = False
         # Basket Catastrophic Loss Guard (Collective Cutloss):
         # If adverse move continues relentlessly and total basket net loss exceeds risk ceiling,
@@ -727,8 +768,12 @@ class PositionManager:
 
         actions: list[str] = []
         if triggered:
+            is_cut = (not reached_target) and total_profit <= 0
+            action_tag = "basket_cut_closed" if is_cut else "basket_tp_closed"
+            log_title = "BASKET COLLECTIVE CUT EXECUTED" if is_cut else "BASKET RECOVERY TP TRIGGERED"
             log.info(
-                "BASKET RECOVERY TP TRIGGERED: closing %d positions (vol=%.2f, profit=+$%.2f, avg_entry=%.2f)",
+                "%s: closing %d positions (vol=%.2f, profit=+$%.2f, avg_entry=%.2f)",
+                log_title,
                 len(positions),
                 basket["total_volume"],
                 total_profit,
@@ -740,7 +785,7 @@ class PositionManager:
                     self.untrack(pos.ticket)
                 except Exception as exc:  # noqa: BLE001
                     log.warning("basket close failed for ticket %s: %s", pos.ticket, exc)
-            actions.append("basket_tp_closed")
+            actions.append(action_tag)
 
         return actions
 

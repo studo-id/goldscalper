@@ -428,13 +428,24 @@ class Runtime:
                 ask = quote.ask if quote else None
                 try:
                     basket_actions = await self.position_manager.manage_basket(group, bid, ask)
-                    if "basket_tp_closed" in basket_actions:
-                        log.info("BASKET TP EXECUTED for %d %s positions", len(group), side_name)
-                        self.order_manager.arm_cooldown(120, reason="post_basket_tp")
-                        if self.settings.predator_reload_enabled:
-                            self._predator_reload_side = side_name
-                            self._predator_reload_expiry = utcnow() + timedelta(seconds=self.settings.predator_reload_window_s)
-                            log.info("PREDATOR RELOAD ARMED for %s (window=%ds)", side_name, self.settings.predator_reload_window_s)
+                    if "basket_tp_closed" in basket_actions or "basket_cut_closed" in basket_actions:
+                        is_win = "basket_tp_closed" in basket_actions
+                        log_tag = "TP" if is_win else "COLLECTIVE CUT"
+                        log.info("BASKET %s EXECUTED for %d %s positions", log_tag, len(group), side_name)
+                        if is_win:
+                            self.order_manager.arm_cooldown(120, reason="post_basket_tp")
+                            if self.settings.predator_reload_enabled:
+                                self._predator_reload_side = side_name
+                                self._predator_reload_expiry = utcnow() + timedelta(seconds=self.settings.predator_reload_window_s)
+                                log.info("PREDATOR RELOAD ARMED for %s (window=%ds)", side_name, self.settings.predator_reload_window_s)
+                        else:
+                            self.order_manager.arm_cooldown(90, reason="post_basket_cut")
+
+                        # Mark individual tickets so _finalize_closed inherits basket outcome
+                        for p in group:
+                            if p.ticket in self._trades:
+                                self._trades[p.ticket]["basket_outcome_win"] = is_win
+
                         positions = await self._safe_positions()
                         live = {p.ticket: p for p in positions}
                 except Exception as exc:  # noqa: BLE001
@@ -503,7 +514,15 @@ class Runtime:
         pnl = float(info.get("last_profit", 0.0) or 0.0)
         vol = float(info.get("volume", 0.01) or 0.01)
         side = str(info.get("direction") or info.get("side") or "BUY").upper()
-        self.wave_engine.record_trade_closed(is_win=(pnl > 0), direction=side)
+
+        # Basket unity: If trade was closed as part of a winning basket, it counts as a WIN for wave engine!
+        if info.get("basket_outcome_win") is True:
+            is_trade_win = True
+        elif info.get("basket_outcome_win") is False:
+            is_trade_win = False
+        else:
+            is_trade_win = (pnl > 0)
+        self.wave_engine.record_trade_closed(is_win=is_trade_win, direction=side)
 
         if not self._trades:
             if pnl > 0:
