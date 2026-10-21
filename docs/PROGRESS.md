@@ -35,6 +35,26 @@ Aturan singkat:
 
 ---
 
+## 2026-10-21 — Fix Blocker VETO REJECTED_MICRO_EXHAUSTION pada Pola Rejection Wick M1 Sniper
+
+**Phase / Area:** SPK Veto Engine (`spk/veto.py`)  
+**Status:** Done  
+
+**Yang dikerjakan**
+- **Akar Masalah Teridentifikasi:** Dari live execution cycle di server, `TF-M1-Sniper` berhasil menghasilkan sinyal `SELL` sangat kuat (confidence 0.75, rejection wick), namun trade dibatalkan 100% oleh `HARD VETO: REJECTED_MICRO_EXHAUSTION` karena candle M1 & M5 sebelumnya hijau (bullish). Padahal secara hukum price action, *shooting star / bearish rejection wick* selalu muncul setelah candle bullish, dan *hammer / bullish pinbar* selalu muncul setelah candle bearish! Veto ini secara inheren mencekik seluruh trade rejection wick bot.
+- **Solusi:** Menambahkan bypass `has_sniper_trigger` pada pemeriksaan `REJECTED_MICRO_EXHAUSTION`. Jika `TF-M1-Sniper` memiliki trigger aktif dengan arah yang sama dan keyakinan $\ge 0.65$, veto mikro-exhaustion dilewati sehingga sniper order dieksekusi instan.
+
+**File tersentuh**
+- `spk/veto.py` — Bypass `REJECTED_MICRO_EXHAUSTION` bila M1 Sniper memiliki sinyal valid $\ge 0.65$.
+
+**Verifikasi**
+- `uv run pytest tests/test_spk_veto.py tests/test_spk_voting.py` → 42 passed in 0.12s.
+
+**Catatan / Next**
+- Deploy ke server live (`studo@100.114.150.48`), restart `gs-bot`, dan verifikasi live cycle dengan `run_debug.sh`.
+
+---
+
 ## 2026-10-21 — Pembebasan Gridlock Scalper: M1 Sniper Fast-Lane, Eliminasi VETO_ALL, & Pemangkasan Cooldown Tidur
 
 **Phase / Area:** SPK Core, Voting, Veto Engine, Settings & Runtime (`spk/voting.py`, `spk/veto.py`, `config/settings.py`, `runtime.py`, `agents/divisions/technical/agents.py`)  

@@ -351,16 +351,24 @@ def evaluate(
     m1_micro = extra.get("m1_micro_vote")
     m5_micro = extra.get("m5_micro_vote")
     if m1_micro is not None and m5_micro is not None:
-        if direction == ACTION_SELL and m1_micro == 1 and m5_micro == 1:
-            return VetoResult(
-                hard=True,
-                reason="REJECTED_MICRO_EXHAUSTION: M5 dan M1 keduanya berstatus BULLISH (terjadi pantulan di micro-structure)",
-            )
-        if direction == ACTION_BUY and m1_micro == -1 and m5_micro == -1:
-            return VetoResult(
-                hard=True,
-                reason="REJECTED_MICRO_EXHAUSTION: M5 dan M1 keduanya berstatus BEARISH (terjadi penolakan di micro-structure)",
-            )
+        # Never block when M1 Sniper has a high-conviction rejection or momentum trigger in this direction!
+        has_sniper_trigger = any(
+            s.agent_id == "TF-M1-Sniper"
+            and (s.vote < 0 if direction == ACTION_SELL else s.vote > 0)
+            and s.confidence >= 0.65
+            for s in signals
+        )
+        if not has_sniper_trigger:
+            if direction == ACTION_SELL and m1_micro == 1 and m5_micro == 1:
+                return VetoResult(
+                    hard=True,
+                    reason="REJECTED_MICRO_EXHAUSTION: M5 dan M1 keduanya berstatus BULLISH (terjadi pantulan di micro-structure)",
+                )
+            if direction == ACTION_BUY and m1_micro == -1 and m5_micro == -1:
+                return VetoResult(
+                    hard=True,
+                    reason="REJECTED_MICRO_EXHAUSTION: M5 dan M1 keduanya berstatus BEARISH (terjadi penolakan di micro-structure)",
+                )
 
     # --- Data-Driven Wave Capacity & Broken Wave Guard ---
     wave_engine = extra.get("wave_engine")
