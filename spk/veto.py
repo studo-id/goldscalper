@@ -182,18 +182,40 @@ def evaluate(
                     and (s.confidence or 0.0) >= 0.60
                     for s in signals
                 )
+                confirming_divisions = {
+                    s.division for s in signals
+                    if (s.vote < 0 if direction == ACTION_SELL else s.vote > 0)
+                }
+                has_waterfall = any(
+                    "waterfall" in (s.reasoning or "").lower()
+                    for s in signals
+                    if (s.vote < 0 if direction == ACTION_SELL else s.vote > 0)
+                )
+                has_multi_division_breakout = (
+                    len(confirming_divisions) >= 3
+                    and spk_confluence_count >= 5
+                    and spk_confluence_count >= 2 * spk_opposing_count
+                )
+                can_demote_sideway_barrier = (
+                    has_sniper_active
+                    or has_waterfall
+                    or has_multi_division_breakout
+                )
 
                 # 1. CRITICAL ANTI-SUICIDE IN SIDEWAY REGIMES (Anti-Pucuk & Anti-Lembah):
                 # In a SIDEWAY / range-bound market, S/R boundaries are BOUNCE WALLS, NOT breakout corridors!
                 # Selling at the bottom (support floor) or buying at the top (resistance ceiling) is strictly forbidden,
-                # UNLESS M1 Sniper specifically triggers a scalping momentum/rejection entry (conf >= 0.60)!
+                # UNLESS:
+                # - M1 Sniper specifically triggers a scalping momentum/rejection entry (conf >= 0.60), OR
+                # - An active waterfall expansion/crash is detected, OR
+                # - A decisive cross-division consensus (>= 3 independent divisions, >= 5 confirming) validates a structural breakout!
                 is_sideway = (
                     market_regime == "SIDEWAY"
                     or sideways_mode
                     or is_ping_pong
                     or (state and hasattr(state, "extra") and isinstance(state.extra, dict) and state.extra.get("sideways_range"))
                 )
-                if is_sideway and not has_sniper_active:
+                if is_sideway and not can_demote_sideway_barrier:
                     boundary_name = "SUPPORT FLOOR" if direction == ACTION_SELL else "RESISTANCE CEILING"
                     return VetoResult(
                         hard=True,
@@ -230,14 +252,14 @@ def evaluate(
                     continue
 
                 # 4. Dynamic demotion anchored to Juggler Portfolio State (Trending / Breakout / Consensus)
-                if has_clear_consensus or has_sniper_active:
+                if has_clear_consensus or can_demote_sideway_barrier:
                     # In Defense mode, scale penalty dynamically with drawdown
                     if daily_pnl_pct < 0.0:
                         pnl_mult = min(1.5, 1.0 + abs(daily_pnl_pct) / 20.0)
                         penalty = round(0.12 * pnl_mult, 4)
                         result.confidence_delta -= penalty
                         result.notes.append(
-                            f"Barrier {sig.agent_id} demoted to soft penalty (-{penalty}) by SPK consensus/sniper "
+                            f"Barrier {sig.agent_id} demoted to soft penalty (-{penalty}) by SPK consensus/sniper/waterfall "
                             f"({spk_confluence_count} confirming vs {spk_opposing_count} opposing, defense pnl={daily_pnl_pct:.1f}%)"
                         )
                         continue
@@ -245,7 +267,7 @@ def evaluate(
                         penalty = 0.10
                         result.confidence_delta -= penalty
                         result.notes.append(
-                            f"Barrier {sig.agent_id} demoted to soft penalty (-{penalty}) by SPK consensus/sniper "
+                            f"Barrier {sig.agent_id} demoted to soft penalty (-{penalty}) by SPK consensus/sniper/waterfall "
                             f"({spk_confluence_count} confirming vs {spk_opposing_count} opposing, growth/balanced)"
                         )
                         continue

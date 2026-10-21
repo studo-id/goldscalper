@@ -392,6 +392,54 @@ def test_anti_sideway_trap_allows_m1_sniper_scalp() -> None:
     assert any("demoted to soft penalty" in note for note in result.notes)
 
 
+def test_anti_sideway_trap_allows_waterfall_and_multi_division_breakout() -> None:
+    # When market undergoes a multi-division waterfall crash, sideway trap must demote
+    barrier_sig = AgentSignal(
+        agent_id="Tech-SupportResistance",
+        division="technical",
+        vote=1,
+        confidence=0.80,
+        veto=VETO_SELL,
+        reasoning="sideway bounce at support ($4112.4), veto SELL",
+    )
+    session_sig = AgentSignal(
+        agent_id="Struct-Session",
+        division="structure",
+        vote=-1,
+        confidence=0.85,
+        reasoning="TOKYO waterfall crash (-$9.9 from open), veto BUY",
+    )
+    trend_sig = AgentSignal(
+        agent_id="Tech-Trend",
+        division="technical",
+        vote=-1,
+        confidence=0.70,
+        reasoning="EMA downtrend",
+    )
+    macro_sig = AgentSignal(
+        agent_id="Fund-MacroRegime",
+        division="fundamental",
+        vote=-1,
+        confidence=0.60,
+        reasoning="hawkish stance",
+    )
+    m5_sig = AgentSignal(
+        agent_id="TF-M5-Inspector",
+        division="timeframe",
+        vote=-1,
+        confidence=0.60,
+        reasoning="bearish M5 setup",
+    )
+    signals = [barrier_sig, session_sig, trend_sig, macro_sig, m5_sig]
+    state = SharedState(extra={"market_regime": "SIDEWAY", "sideways_range": True})
+
+    result = evaluate(signals, state, ACTION_SELL)
+    assert result.hard is False
+    assert result.confidence_delta == -0.10
+    assert any("demoted to soft penalty" in note for note in result.notes)
+
+
+
 
 def test_counter_trend_defense_blocks_buy_during_h1_d1_downtrend() -> None:
     # During confirmed H1 and D1 downtrend in Defense mode, counter-trend BUY is blocked

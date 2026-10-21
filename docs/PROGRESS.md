@@ -35,6 +35,31 @@ Aturan singkat:
 
 ---
 
+## 2026-10-21 — Fix Deadlock Sideway Barrier saat Waterfall Crash / Multi-Division Breakout
+
+**Phase / Area:** SPK Veto Engine (`spk/veto.py`), Tests (`tests/test_spk_veto.py`)  
+**Status:** Done  
+
+**Yang dikerjakan**
+- **Akar Masalah Teridentifikasi (Deadlock Dual-Sisi):** Dari pemeriksaan live server detik ini, terjadi deadlock total. Pasar Gold mengalami *TOKYO waterfall crash* (-$9.90, skor Sell 6.045 vs Buy 2.645) dengan 8 agen dari 4 divisi independen (Timeframe, Structure, Technical, Fundamental) kompak memilih SELL. Namun order SELL digugurkan 100% oleh `HARD BARRIER (ANTI_SIDEWAY_TRAP)` dari `Tech-SupportResistance` karena rentang 20 bar M5 $\le \$10.00$, dan 1 candle M1 kecil hijau membuat sinyal M1 Sniper berbalik sekejap sehingga bypass sniper tidak aktif. Di saat yang sama, BUY juga di-veto mati oleh `Struct-Session: TOKYO waterfall crash`. Akibatnya, kedua pintu terkunci rapat (deadlock).
+- **Solusi:**
+  1. Menambahkan pengenal *Waterfall & Multi-Division Breakout* pada evaluasi `ANTI_SIDEWAY_TRAP`.
+  2. Jika pasar mengalami `has_waterfall` atau validasi silang struktural dari $\ge 3$ divisi independen dengan $\ge 5$ agen konfirmasi (`has_multi_division_breakout`), S/R boundary tidak lagi dianggap sebagai tembok pantul sideway, melainkan jalur breakout.
+  3. Barrier di-demote menjadi *soft penalty* (-0.10) sehingga order eksekusi langsung meluncur tanpa tertahan deadlock.
+- **Unit Test Baru:** Ditambahkan `test_anti_sideway_trap_allows_waterfall_and_multi_division_breakout` di `tests/test_spk_veto.py`.
+
+**File tersentuh**
+- `spk/veto.py` — Pengenalan multi-division breakout dan waterfall crash pada demosi sideway trap.
+- `tests/test_spk_veto.py` — Unit test validasi demosi saat waterfall multi-divisi.
+
+**Verifikasi**
+- `uv run pytest tests/test_spk_veto.py tests/test_spk_voting.py` → 44 passed in 0.18s.
+
+**Catatan / Next**
+- Push ke repository, scp ke server live, restart bot, dan jalankan `run_debug.sh` untuk membuktikan status HARD VETO telah terangkat.
+
+---
+
 ## 2026-10-21 — Fix Blocker DYNAMIC DATA GATE di OrderManager (Scalper Runway Exception)
 
 **Phase / Area:** Execution Layer (`execution/order_manager.py`)  
