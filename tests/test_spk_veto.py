@@ -366,6 +366,33 @@ def test_anti_sideway_trap_blocks_sell_at_support_floor() -> None:
     assert "SUPPORT FLOOR" in (result.reason or "")
 
 
+def test_anti_sideway_trap_allows_m1_sniper_scalp() -> None:
+    # When TF-M1-Sniper detects a fast scalping trigger, sideway trap is demoted to soft penalty
+    barrier_sig = AgentSignal(
+        agent_id="Tech-SupportResistance",
+        division="technical",
+        vote=1,
+        confidence=0.80,
+        veto=VETO_SELL,
+        reasoning="price in M1 lower support zone ($4130.48), veto SELL",
+    )
+    sniper_sig = AgentSignal(
+        agent_id="TF-M1-Sniper",
+        division="timeframe",
+        vote=-1,
+        confidence=0.60,
+        reasoning="bearish body (sniper)",
+    )
+    signals = [barrier_sig, sniper_sig]
+    state = SharedState(extra={"market_regime": "SIDEWAY"})
+
+    result = evaluate(signals, state, ACTION_SELL)
+    assert result.hard is False
+    assert result.confidence_delta == -0.10
+    assert any("demoted to soft penalty" in note for note in result.notes)
+
+
+
 def test_counter_trend_defense_blocks_buy_during_h1_d1_downtrend() -> None:
     # During confirmed H1 and D1 downtrend in Defense mode, counter-trend BUY is blocked
     h1_sig = AgentSignal(

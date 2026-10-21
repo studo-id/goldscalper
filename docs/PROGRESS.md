@@ -35,6 +35,30 @@ Aturan singkat:
 
 ---
 
+## 2026-10-21 — Fix Blocker HARD BARRIER (ANTI_SIDEWAY_TRAP) pada Sinyal M1 Sniper
+
+**Phase / Area:** SPK Veto Engine (`spk/veto.py`), Tests (`tests/test_spk_veto.py`)  
+**Status:** Done  
+
+**Yang dikerjakan**
+- **Akar Masalah Teridentifikasi:** Dari live execution cycle di server, saat konsensus sell mencapai STRONG (-2.325 net score) dan `TF-M1-Sniper` mengeluarkan sinyal SELL aktif (confidence 0.60), trade dibatalkan 100% oleh `HARD VETO: HARD BARRIER (ANTI_SIDEWAY_TRAP)` dari `Tech-SupportResistance` karena harga berada di 30% bawah rentang micro M1. Hal ini disebabkan syarat pengecualian sniper sideway trap sebelumnya mematok ambang confidence terlalu tinggi ($\ge 0.75$), sehingga M1 scalper tidak pernah diizinkan eksekusi.
+- **Solusi:** 
+  1. Melonggarkan syarat pengecualian `ANTI_SIDEWAY_TRAP` pada `spk/veto.py` agar aktif jika `TF-M1-Sniper` memiliki sinyal terkonfirmasi searah dengan keyakinan $\ge 0.60$.
+  2. Saat trigger M1 Sniper aktif atau terdapat konsensus SPK, barrier Support/Resistance di-demote menjadi soft confidence penalty (-0.10) alih-alih hard cancellation.
+- **Unit Test Baru:** Ditambahkan `test_anti_sideway_trap_allows_m1_sniper_scalp` di `tests/test_spk_veto.py` untuk menguji demosi ini.
+
+**File tersentuh**
+- `spk/veto.py` — Demote ANTI_SIDEWAY_TRAP saat TF-M1-Sniper conf $\ge 0.60$.
+- `tests/test_spk_veto.py` — Tambah unit test demosi M1 sniper scalp.
+
+**Verifikasi**
+- `uv run pytest tests/test_spk_veto.py tests/test_spk_voting.py` → 43 passed in 0.17s.
+
+**Catatan / Next**
+- Deploy ke server live (`studo@100.114.150.48`), restart `gs-bot`, dan verifikasi live cycle dengan `run_debug.sh`.
+
+---
+
 ## 2026-10-21 — Fix Blocker VETO REJECTED_MICRO_EXHAUSTION pada Pola Rejection Wick M1 Sniper
 
 **Phase / Area:** SPK Veto Engine (`spk/veto.py`)  

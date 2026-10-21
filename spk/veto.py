@@ -163,16 +163,37 @@ def evaluate(
 
                 market_regime = state.extra.get("market_regime") if (state and hasattr(state, "extra") and isinstance(state.extra, dict)) else None
 
+                # Count confluence & sniper triggers first
+                spk_confluence_count = sum(
+                    1 for s in signals
+                    if (s.vote > 0 if direction == ACTION_BUY else s.vote < 0)
+                )
+                spk_opposing_count = sum(
+                    1 for s in signals
+                    if (s.vote < 0 if direction == ACTION_BUY else s.vote > 0)
+                )
+                has_clear_consensus = (
+                    spk_confluence_count >= 5
+                    and spk_confluence_count > spk_opposing_count
+                )
+                has_sniper_active = any(
+                    s.agent_id == "TF-M1-Sniper"
+                    and (s.vote < 0 if direction == ACTION_SELL else s.vote > 0)
+                    and (s.confidence or 0.0) >= 0.60
+                    for s in signals
+                )
+
                 # 1. CRITICAL ANTI-SUICIDE IN SIDEWAY REGIMES (Anti-Pucuk & Anti-Lembah):
                 # In a SIDEWAY / range-bound market, S/R boundaries are BOUNCE WALLS, NOT breakout corridors!
-                # Selling at the bottom (support floor) or buying at the top (resistance ceiling) is strictly forbidden.
+                # Selling at the bottom (support floor) or buying at the top (resistance ceiling) is strictly forbidden,
+                # UNLESS M1 Sniper specifically triggers a scalping momentum/rejection entry (conf >= 0.60)!
                 is_sideway = (
                     market_regime == "SIDEWAY"
                     or sideways_mode
                     or is_ping_pong
                     or (state and hasattr(state, "extra") and isinstance(state.extra, dict) and state.extra.get("sideways_range"))
                 )
-                if is_sideway and not any(s.agent_id == "TF-M1-Sniper" and s.confidence >= 0.75 for s in signals):
+                if is_sideway and not has_sniper_active:
                     boundary_name = "SUPPORT FLOOR" if direction == ACTION_SELL else "RESISTANCE CEILING"
                     return VetoResult(
                         hard=True,
@@ -208,29 +229,15 @@ def evaluate(
                     )
                     continue
 
-                # 4. Confluence count in candidate direction vs opposing direction
-                spk_confluence_count = sum(
-                    1 for s in signals
-                    if (s.vote > 0 if direction == ACTION_BUY else s.vote < 0)
-                )
-                spk_opposing_count = sum(
-                    1 for s in signals
-                    if (s.vote < 0 if direction == ACTION_BUY else s.vote > 0)
-                )
-                has_clear_consensus = (
-                    spk_confluence_count >= 5
-                    and spk_confluence_count > spk_opposing_count
-                )
-
-                # 4. Dynamic demotion anchored to Juggler Portfolio State (Trending / Breakout markets)
-                if has_clear_consensus:
+                # 4. Dynamic demotion anchored to Juggler Portfolio State (Trending / Breakout / Consensus)
+                if has_clear_consensus or has_sniper_active:
                     # In Defense mode, scale penalty dynamically with drawdown
                     if daily_pnl_pct < 0.0:
                         pnl_mult = min(1.5, 1.0 + abs(daily_pnl_pct) / 20.0)
                         penalty = round(0.12 * pnl_mult, 4)
                         result.confidence_delta -= penalty
                         result.notes.append(
-                            f"Barrier {sig.agent_id} demoted to soft penalty (-{penalty}) by SPK consensus "
+                            f"Barrier {sig.agent_id} demoted to soft penalty (-{penalty}) by SPK consensus/sniper "
                             f"({spk_confluence_count} confirming vs {spk_opposing_count} opposing, defense pnl={daily_pnl_pct:.1f}%)"
                         )
                         continue
@@ -238,7 +245,7 @@ def evaluate(
                         penalty = 0.10
                         result.confidence_delta -= penalty
                         result.notes.append(
-                            f"Barrier {sig.agent_id} demoted to soft penalty (-{penalty}) by SPK consensus "
+                            f"Barrier {sig.agent_id} demoted to soft penalty (-{penalty}) by SPK consensus/sniper "
                             f"({spk_confluence_count} confirming vs {spk_opposing_count} opposing, growth/balanced)"
                         )
                         continue
