@@ -35,6 +35,35 @@ Aturan singkat:
 
 ---
 
+## 2026-10-21 — Migrasi Akun Real: GoldScalper ke Akun Cent (USC) & AcengGold ke Akun Standard ($10 Sniper)
+
+**Phase / Area:** Phase 14 / Execution Layer & Live Broker Migration  
+**Status:** Done  
+
+**Yang dikerjakan**
+- **Pertukaran Akun Simetris Berbasis Karakter Algoritma:**
+  1. *AcengGold (C:\Users\STUDO\Documents\Project\APPS\trading\AcengGold):* Dikonfigurasi menggunakan akun **Standard #109880647** ($10 USD, server `Exness-MT5Real6`, simbol `XAUUSDm`) dengan mode *Sniper Single Position* (`FIXED_LOT=0.01`). Sesuai instruksi user, container `aceng-bot` langsung **dimatikan (*stopped*)** di server VPS agar aman menunggu update lanjutan.
+  2. *GoldScalper (Server VPS):* Dialihkan dari akun demo ke akun **Cent #184113188** (saldo **6,434.92 USC**, server `Exness-MT5Real25`, simbol `XAUUSDc`).
+- **Penyelarasan Infrastruktur Docker Network:**
+  - Menghubungkan container `gs-bot` ke network `aceng-net` secara otomatis via `docker-compose.yml`, sehingga `gs-bot` dapat terhubung ke bridge MT5 Cent di `http://aceng-mt5:9095`.
+  - Simbol trading live diupdate ke `XAUUSDc` (simbol Cent Exness).
+- **Pembersihan Database (*Clean Slate*):**
+  - Mengeksekusi `TRUNCATE trades, agent_decisions, trade_lessons CASCADE` di PostgreSQL TimescaleDB agar analitik, PnL harian, winrate, dan dashboard GoldScalper mulai bersih dari $0 secara murni di akun real cent ini.
+- **Eksekusi Awal Sukses:**
+  - Bot langsung terhubung, melakukan pemanasan 100 candle M1-D1 `XAUUSDc`, dan membuka trade awal (Trade #1 di gelombang SELL, tiket `#4315059791`).
+
+**File tersentuh**
+- `docker-compose.yml` — Penambahan external network `aceng-net` untuk bot bridge.
+- `C:\Users\STUDO\Documents\Project\APPS\trading\AcengGold\.env` — Konfigurasi kredensial MT5 akun Standard #109880647 ($10 USD).
+- `/home/studo/apps/acenggold/.env` — Sinkronisasi konfigurasi ke VPS.
+- `/home/studo/apps/goldscalper/.env` — Konfigurasi akun Cent #184113188 dan simbol `XAUUSDc`.
+
+**Verifikasi**
+- `docker logs gs-bot` → `MT5 bridge connected: http://aceng-mt5:9095 (trade_allowed=True)`, `tick streamer started (symbol=XAUUSDc)`, `PRELOADED TODAY PORTFOLIO STATS: wins=0, gross_profit=$0.00, gross_loss=$0.00`.
+- `docker inspect aceng-bot` → `Status: exited` (bot AcengGold offline sesuai permintaan).
+
+---
+
 ## 2026-10-21 — Kalibrasi Jarak Layer 2 Rescue (30 Pips), Anti-Pucuk Wave Chain Guard, & Ambang Batas Minimal Confidence Mode DEFENSE
 
 **Phase / Area:** Phase 14 / Execution Layer & Orchestrator Governance  
