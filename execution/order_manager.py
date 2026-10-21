@@ -518,6 +518,16 @@ class OrderManager:
                 )
                 if not is_clean_breakdown:
                     dist_to_support = entry - cluster_support
+                    # Scalper Runway Exception: In fast M1 scalping, if price still has ample runway
+                    # (dist >= $1.50 USD / 15 pips) before touching the floor, and market shows
+                    # directional trend or micro-momentum, permit the scalp! Only block when directly colliding into the floor.
+                    m1_micro = getattr(state, "extra", {}).get("m1_micro_vote") if state else None
+                    if dist_to_support >= 1.50 and (
+                        market_regime in ("TRENDING_BEAR", "EXPANSION_BEAR")
+                        or struct_event in ("LH_LL", "BEAR_TREND", "BREAKDOWN")
+                        or m1_micro == -1
+                    ):
+                        return False, ""
                     return (
                         True,
                         f"Blocked SELL near support floor (${cluster_support:.2f}, dist={dist_to_support:.2f}, buffer={sr_buffer:.2f}) without confirmed M5 breakdown",
@@ -532,6 +542,16 @@ class OrderManager:
                 )
                 if not is_clean_breakout:
                     dist_to_res = cluster_resistance - entry
+                    # Scalper Runway Exception: In fast M1 scalping, if price still has ample runway
+                    # (dist >= $1.50 USD / 15 pips) before touching the ceiling, and market shows
+                    # directional trend or micro-momentum, permit the scalp!
+                    m1_micro = getattr(state, "extra", {}).get("m1_micro_vote") if state else None
+                    if dist_to_res >= 1.50 and (
+                        market_regime in ("TRENDING_BULL", "EXPANSION_BULL")
+                        or struct_event in ("HH_HL", "BULL_TREND", "BREAKOUT")
+                        or m1_micro == 1
+                    ):
+                        return False, ""
                     return (
                         True,
                         f"Blocked BUY near resistance ceiling (${cluster_resistance:.2f}, dist={dist_to_res:.2f}, buffer={sr_buffer:.2f}) without confirmed M5 breakout",

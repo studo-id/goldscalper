@@ -35,6 +35,28 @@ Aturan singkat:
 
 ---
 
+## 2026-10-21 — Fix Blocker DYNAMIC DATA GATE di OrderManager (Scalper Runway Exception)
+
+**Phase / Area:** Execution Layer (`execution/order_manager.py`)  
+**Status:** Done  
+
+**Yang dikerjakan**
+- **Akar Masalah Teridentifikasi:** Dari live log server `gs-bot`, setelah SPK meloloskan sinyal SELL kuat (Net Score -2.325, Strength STRONG, Tradable True), order eksekusi langsung digugurkan oleh OrderManager dengan peringatan:
+  `DYNAMIC DATA GATE: Blocked SELL near support floor ($4113.96, dist=2.57, buffer=3.50) without confirmed M5 breakdown`.
+  Hal ini disebabkan gate S/R dinamis di `order_manager.py` menggunakan buffer hingga $3.50 (35 pips) dan mewajibkan candle M5 selesai menembus breakdown di bawah support, padahal GoldScalper beroperasi sebagai scalper M1. Jarak $2.57 (25.7 pips) masih menyediakan ruang gerak profit scalping yang sangat lapang (TP target M1 hanya 15-25 pips).
+- **Solusi:** Menambahkan *Scalper Runway Exception* pada `_check_dynamic_sr_boundary()`. Jika jarak ke lantai support/atap resistance masih $\ge \$1.50$ (15 pips) dan pasar menunjukkan momentum mikro/tren (`m1_micro_vote == -1` atau regime trending/breakdown), trade scalping diizinkan meluncur tanpa harus menunggu candle M5 closed. Pemblokiran hanya terjadi jika harga benar-benar menabrak batas support/resistance (< $1.50).
+
+**File tersentuh**
+- `execution/order_manager.py` — Tambah scalper runway exception ($\ge \$1.50$ distance) saat micro momentum terkonfirmasi.
+
+**Verifikasi**
+- `uv run pytest tests/test_execution.py tests/test_market_regime.py tests/test_spk_veto.py tests/test_spk_voting.py` → 75 passed in 0.28s.
+
+**Catatan / Next**
+- Push ke repository, scp ke server live, restart bot, dan pantau eksekusi order riil.
+
+---
+
 ## 2026-10-21 — Fix Blocker HARD BARRIER (ANTI_SIDEWAY_TRAP) pada Sinyal M1 Sniper
 
 **Phase / Area:** SPK Veto Engine (`spk/veto.py`), Tests (`tests/test_spk_veto.py`)  
