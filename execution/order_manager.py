@@ -513,8 +513,8 @@ class OrderManager:
             # Entering within dynamic buffer of support floor (or lower quartile of sideways range)
             if (cluster_support - 1.0) <= entry <= (cluster_support + sr_buffer):
                 is_clean_breakdown = (
-                    (last_m5_close < (cluster_support - 0.30) and struct_event == "LH_LL")
-                    or "TRENDING_BEAR" in market_regime
+                    last_m5_close < (cluster_support - 0.50)
+                    and struct_event in ("LH_LL", "BREAKDOWN")
                 )
                 if not is_clean_breakdown:
                     dist_to_support = entry - cluster_support
@@ -527,8 +527,8 @@ class OrderManager:
             # Entering within dynamic buffer of resistance ceiling (or upper quartile of sideways range)
             if (cluster_resistance - sr_buffer) <= entry <= (cluster_resistance + 1.0):
                 is_clean_breakout = (
-                    (last_m5_close > (cluster_resistance + 0.30) and struct_event == "HH_HL")
-                    or "TRENDING_BULL" in market_regime
+                    last_m5_close > (cluster_resistance + 0.50)
+                    and struct_event in ("HH_HL", "BREAKOUT")
                 )
                 if not is_clean_breakout:
                     dist_to_res = cluster_resistance - entry

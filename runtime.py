@@ -338,8 +338,10 @@ class Runtime:
     # --- one execution cycle ---------------------------------------------------
     async def step(self) -> Any:
         """Run one decision + execution + position-management tick."""
+        # 1. Manage and reconcile existing positions first (SL/TP, trailing, cutloss, cooldown arming)
+        await self._manage_positions()
+
         if self.paused:
-            await self._manage_positions()
             return self.orchestrator.last_decision
 
         decision = await self.orchestrator.run_cycle()
@@ -378,7 +380,6 @@ class Runtime:
         # Scalper Radar Inactivity Watchdog Check (diagnose vetoes & market when idle)
         await self._check_scalper_radar(state, decision)
 
-        await self._manage_positions()
         return decision
 
     async def _manage_positions(self) -> None:

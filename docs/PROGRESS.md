@@ -35,6 +35,49 @@ Aturan singkat:
 
 ---
 
+## 2026-10-21 — Eliminasi False Trend Expansion & Penegakan Proteksi Anti-Sell di Lantai Support Sideways
+
+**Phase / Area:** Market Regime & Strategy Layer (`core/market_regime.py`, `agents/divisions/technical/agents.py`, `execution/order_manager.py`, `spk/veto.py`, `runtime.py`, `tests/test_market_regime.py`)  
+**Status:** Done & Verified (130 passed across core suites)
+
+**Yang dikerjakan:**
+1. **Investigasi Kejadian Riil (Ticket 4905322710 SELL @ 4,115.77):**
+   - User menemukan anomali entri SELL di lantai terbawah konsolidasi sideways Tokyo ($4,114.00 – $4,120.00) sesaat setelah Trade #1 (4905320199) Take Profit di 4,115.83.
+   - Ditemukan 4 titik buta logika:
+     a. Ambang slope M5 statis `slope_m5 < -0.10` (1 pip pada Gold $4,115) dan aturan liar `or (last_3_red and slope_m5 < -0.05)` membuat konsolidasi datar salah diklasifikasikan sebagai `Confirmed Bearish Trend Expansion`.
+     b. Celah `pos_pct <= 0.40` pada `Tech-SupportResistance` memaksa VOTE SELL (conf 0.85) dan VETO BUY di area lantai support saat mendeteksi tren palsu.
+     c. Proteksi `ANTI_SIDEWAY_TRAP` di `spk/veto.py` ter-bypass oleh override tren palsu.
+     d. `_manage_positions()` di `runtime.py` berjalan setelah `run_cycle()`, menyebabkan race-condition pembukaan trade baru di milidetik yang sama saat trade lama baru saja hit TP sebelum cooldown sempat aktif.
+2. **Kalibrasi Ambang Slope M5 Berbasis ATR di `core/market_regime.py`:**
+   - Mengubah ambang slope statis menjadi adaptif volatilitas: `slope_threshold = max(0.12, round(0.08 * atr_m5, 2))`. Pada Gold di mana ATR M5 ~$5.30, slope harus $\ge 0.42$ USD, mencegah noise drift 25 sen melabeli tren.
+   - Menghapus aturan liar `last_3_red and slope_m5 < -0.05`. Tren harus memenuhi EMA9 < EMA21, kemiringan valid, dan progresi candle M5.
+   - Memperbesar buffer Break of Structure (BOS) menjadi `max(0.80, round(0.15 * atr_m5, 2))`.
+3. **Koreksi Logika Breakout pada `Tech-SupportResistance`:**
+   - Menghapus celah `pos_pct <= 0.40`. Breakout/breakdown wajib berupa penembusan candle riil di luar channel buffer (`close < m1_support - buf`).
+   - Di area $\le 0.30$ (Support Pong Zone), agen secara konsisten memilih VOTE BUY dan VETO SELL.
+4. **Penegakan Prioritas `ANTI_SIDEWAY_TRAP` di `spk/veto.py`:**
+   - Memindahkan evaluasi `ANTI_SIDEWAY_TRAP` sebelum evaluasi override tren. Jika pasar terbukti berada dalam span $\le \$10.00$, boundary S/R diperlakukan sebagai dinding pantul (*bounce wall*), sehingga SELL di support floor otomatis di-hard veto.
+5. **Penghapusan Label-Only Bypass di `OrderManager._check_dynamic_sr_boundary`:**
+   - Menghapus `or "TRENDING_BEAR" in market_regime` pada boundary check. Entri di dekat lantai support hanya diizinkan jika candle M5 benar-benar telah close menembus support (`last_m5_close < cluster_support - 0.50` dan `LH_LL`).
+6. **Perbaikan Race Condition Eksekusi di `runtime.step()`:**
+   - Menjalankan `await self._manage_positions()` di awal siklus `step()`. Posisi tertutup difinalisasi lebih dulu dan cooldown dipersenjatai seketika sebelum `run_cycle()` mengevaluasi entri berikutnya.
+7. **Unit Test & Verifikasi:**
+   - Menambahkan unit test `test_anti_selling_bottom_of_sideway_range_strict_guard` di `tests/test_market_regime.py` yang mereproduksi persis struktur chart konsolidasi $4,114–$4,120 dan memverifikasi proteksi multi-lapis.
+
+**File tersentuh:**
+- `core/market_regime.py` — Ambang slope berbasis ATR, BOS buffer, hapus aturan liar 3 bar red.
+- `agents/divisions/technical/agents.py` — Hapus celah `pos_pct <= 0.40`, syarat penembusan support riil.
+- `spk/veto.py` — Prioritaskan `ANTI_SIDEWAY_TRAP` di atas tren override.
+- `execution/order_manager.py` — Syarat structural candle close untuk M5 S/R gate.
+- `runtime.py` — Reconcile positions first di `step()`.
+- `tests/test_market_regime.py` — Test case validasi proteksi lantai support.
+
+**Verifikasi:**
+- `pytest tests/test_market_regime.py` → 7 passed in 0.15s.
+- `pytest tests/test_execution.py tests/test_spk_veto.py tests/test_spk_voting.py tests/test_risk_division.py tests/test_technical_division.py tests/test_market_regime.py tests/test_wave_engine.py` → 130 passed in 0.44s.
+
+---
+
 ## 2026-10-21 — Kalibrasi Matematis Rescue Layer 2, Smart Knife Velocity Guard, & Defense Lot Cap
 
 **Phase / Area:** Execution Layer (`execution/order_manager.py`, `execution/position_manager.py`, `config/settings.py`, `tests/test_execution.py`, `docs/MULTI_ENTRY_RESCUE_SPEC.md`)  

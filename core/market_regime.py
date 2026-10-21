@@ -128,8 +128,9 @@ def detect_market_regime(
     last_3_red = b_m1.n >= 3 and all(b_m1.closes[i] < b_m1.opens[i] for i in range(-3, 0))
     last_3_green = b_m1.n >= 3 and all(b_m1.closes[i] > b_m1.opens[i] for i in range(-3, 0))
 
-    bos_bear = price < (swing_low - 0.20)
-    bos_bull = price > (swing_high + 0.20)
+    bos_offset = max(0.80, round(0.15 * atr_m5, 2))
+    bos_bear = price < (swing_low - bos_offset)
+    bos_bull = price > (swing_high + bos_offset)
 
     # Last bar wick stats
     last_o = b_m1.opens[-1]
@@ -273,10 +274,11 @@ def detect_market_regime(
     prior_bear_progression = b_m5.n >= 4 and (b_m5.closes[-2] < b_m5.closes[-4])
     prior_bull_progression = b_m5.n >= 4 and (b_m5.closes[-2] > b_m5.closes[-4])
 
+    slope_threshold = max(0.12, round(0.08 * atr_m5, 2))
+
     is_bear_trend = (
-        (ema9 < ema21 and slope_m5 < -0.10 and (m5_bear_progression or prior_bear_progression or bos_bear or last_3_red))
-        or (bos_bear and slope_m5 < 0.0)
-        or (last_3_red and slope_m5 < -0.05)
+        (ema9 < ema21 and slope_m5 < -slope_threshold and (m5_bear_progression or prior_bear_progression or bos_bear))
+        or (bos_bear and slope_m5 < -0.05)
     )
     if is_bear_trend:
         # Micro-Exhaustion Pullback Guard (AcengGold-grade):
@@ -306,9 +308,8 @@ def detect_market_regime(
         )
 
     is_bull_trend = (
-        (ema9 > ema21 and slope_m5 > 0.10 and (m5_bull_progression or prior_bull_progression or bos_bull or last_3_green))
-        or (bos_bull and slope_m5 > 0.0)
-        or (last_3_green and slope_m5 > 0.05)
+        (ema9 > ema21 and slope_m5 > slope_threshold and (m5_bull_progression or prior_bull_progression or bos_bull))
+        or (bos_bull and slope_m5 > 0.05)
     )
     if is_bull_trend:
         # Micro-Exhaustion Pullback Guard (AcengGold-grade):

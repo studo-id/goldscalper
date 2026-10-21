@@ -151,10 +151,45 @@ def evaluate(
                     state.extra["active_sr_barrier_agent"] = sig.agent_id
                     state.extra["active_sr_barrier_reason"] = sig.reasoning
 
-                # Juggler Trend Continuation Override:
+                market_regime = state.extra.get("market_regime") if (state and hasattr(state, "extra") and isinstance(state.extra, dict)) else None
+                m1_span = float(state.extra.get("m1_span", 0.0) or 0.0) if (state and hasattr(state, "extra") and isinstance(state.extra, dict)) else 0.0
+
+                # 1. CRITICAL ANTI-SUICIDE IN SIDEWAY REGIMES (Anti-Pucuk & Anti-Lembah):
+                # In a SIDEWAY / range-bound market, S/R boundaries are BOUNCE WALLS, NOT breakout corridors!
+                # Selling at the bottom (support floor) or buying at the top (resistance ceiling) is strictly forbidden.
+                is_sideway = (
+                    market_regime == "SIDEWAY"
+                    or sideways_mode
+                    or is_ping_pong
+                    or (state and hasattr(state, "extra") and isinstance(state.extra, dict) and state.extra.get("sideways_range"))
+                    or (m1_span > 0 and m1_span <= 10.0 and "CONFIRMED_MICRO" not in (sig.reasoning or ""))
+                )
+                if is_sideway:
+                    boundary_name = "SUPPORT FLOOR" if direction == ACTION_SELL else "RESISTANCE CEILING"
+                    return VetoResult(
+                        hard=True,
+                        reason=f"HARD BARRIER (ANTI_SIDEWAY_TRAP): {sig.agent_id} blocked {direction} at {boundary_name} in SIDEWAY regime ({sig.reasoning})",
+                        notes=[f"{sig.agent_id}:{sig.veto}:barrier_sideway_trap"],
+                    )
+
+                # 2. Finish Line Lockdown: Near daily sprint goal (remaining <= $20), strictly maintain hard barrier
+                rem_target = (
+                    state.extra.get("remaining_target_usd")
+                    if (state and hasattr(state, "extra") and isinstance(state.extra, dict))
+                    else None
+                )
+                daily_pnl_pct = float(getattr(state, "daily_pnl_pct", 0.0) or 0.0) if state else 0.0
+                is_finish_line = rem_target is not None and 0 < rem_target <= 20.0
+                if is_finish_line:
+                    return VetoResult(
+                        hard=True,
+                        reason=f"HARD BARRIER (FINISH_LINE_LOCKDOWN): {sig.agent_id} blocked {direction} near target (${rem_target:.1f} remaining) ({sig.reasoning})",
+                        notes=[f"{sig.agent_id}:{sig.veto}:barrier_finish_line"],
+                    )
+
+                # 3. Juggler Trend Continuation Override:
                 # If Market Lifecycle is in active TRENDING expansion in this trade direction,
                 # the S/R boundary is a continuation/breakout path, not a hard blocking barrier!
-                market_regime = state.extra.get("market_regime") if (state and hasattr(state, "extra") and isinstance(state.extra, dict)) else None
                 if (
                     (direction == ACTION_SELL and market_regime == "TRENDING_BEAR")
                     or (direction == ACTION_BUY and market_regime == "TRENDING_BULL")
@@ -165,25 +200,7 @@ def evaluate(
                     )
                     continue
 
-                # Juggler & BizDev Dynamic Portfolio & Target S/R Barrier Governance:
-                # Dynamically balances boundary defense vs agile scalp breakout execution.
-                rem_target = (
-                    state.extra.get("remaining_target_usd")
-                    if (state and hasattr(state, "extra") and isinstance(state.extra, dict))
-                    else None
-                )
-                daily_pnl_pct = float(getattr(state, "daily_pnl_pct", 0.0) or 0.0) if state else 0.0
-
-                # 1. Finish Line Lockdown: Near daily sprint goal (remaining <= $20), strictly maintain hard barrier
-                is_finish_line = rem_target is not None and 0 < rem_target <= 20.0
-                if is_finish_line:
-                    return VetoResult(
-                        hard=True,
-                        reason=f"HARD BARRIER (FINISH_LINE_LOCKDOWN): {sig.agent_id} blocked {direction} near target (${rem_target:.1f} remaining) ({sig.reasoning})",
-                        notes=[f"{sig.agent_id}:{sig.veto}:barrier_finish_line"],
-                    )
-
-                # 2. Confluence count in candidate direction vs opposing direction
+                # 4. Confluence count in candidate direction vs opposing direction
                 spk_confluence_count = sum(
                     1 for s in signals
                     if (s.vote > 0 if direction == ACTION_BUY else s.vote < 0)
@@ -196,23 +213,6 @@ def evaluate(
                     spk_confluence_count >= 5
                     and spk_confluence_count > spk_opposing_count
                 )
-
-                # 3. CRITICAL ANTI-SUICIDE IN SIDEWAY REGIMES (Anti-Pucuk & Anti-Lembah):
-                # In a SIDEWAY / range-bound market, S/R boundaries are BOUNCE WALLS, NOT breakout corridors!
-                # Selling at the bottom (support floor) or buying at the top (resistance ceiling) is strictly forbidden.
-                is_sideway = (
-                    market_regime == "SIDEWAY"
-                    or sideways_mode
-                    or is_ping_pong
-                    or (state and hasattr(state, "extra") and isinstance(state.extra, dict) and state.extra.get("sideways_range"))
-                )
-                if is_sideway:
-                    boundary_name = "SUPPORT FLOOR" if direction == ACTION_SELL else "RESISTANCE CEILING"
-                    return VetoResult(
-                        hard=True,
-                        reason=f"HARD BARRIER (ANTI_SIDEWAY_TRAP): {sig.agent_id} blocked {direction} at {boundary_name} in SIDEWAY regime ({sig.reasoning})",
-                        notes=[f"{sig.agent_id}:{sig.veto}:barrier_sideway_trap"],
-                    )
 
                 # 4. Dynamic demotion anchored to Juggler Portfolio State (Trending / Breakout markets)
                 if has_clear_consensus:

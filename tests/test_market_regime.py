@@ -118,3 +118,51 @@ async def test_support_resistance_micro_exhaustion_bounce_vetoes_sell() -> None:
     assert sig.veto == VETO_SELL
     assert sig.metadata.get("micro_sr_event") == "MICRO_EXHAUSTION_BOUNCE"
 
+
+@pytest.mark.asyncio
+async def test_anti_selling_bottom_of_sideway_range_strict_guard() -> None:
+    # Scenario: XAUUSD in tight sideways consolidation (4114.0 - 4120.0).
+    # Price is at 4115.50 (support floor, lower 25% of range).
+    # System must strictly FORBID SELL and veto it across all layers.
+    from spk.veto import evaluate as evaluate_vetoes
+    from spk.decision import ACTION_SELL
+    from execution.order_manager import OrderManager
+    from core.mt5_connector import MockMT5Client
+    from config.settings import settings
+
+    # Alternating M5 bars between 4114.0 and 4119.5, ending at support floor 4115.5
+    m5_rows = [
+        (4115.0, 4119.5, 4114.2, 4118.5) if i % 2 == 1 else (4118.5, 4119.2, 4114.0, 4115.5)
+        for i in range(25)
+    ]
+
+    # M1 bars oscillating in the same range, ending at support floor 4115.5
+    m1_rows = [
+        (4115.5, 4118.5, 4115.0, 4117.8) if i % 2 == 1 else (4117.8, 4118.0, 4114.5, 4115.5)
+        for i in range(25)
+    ]
+
+    st = SharedState(symbol="XAUUSDm", frames={"M5": _frame("M5", m5_rows), "M1": _frame("M1", m1_rows)})
+
+    # 1. Market regime must be classified as SIDEWAY, NOT TRENDING_BEAR
+    regime = detect_market_regime(st, 4115.50)
+    assert regime.regime == REGIME_SIDEWAY
+    assert regime.is_trending is False
+
+    # 2. Tech-SupportResistance must recognize Support Pong Zone, vote BUY, and issue VETO_SELL
+    sig = await SupportResistance().evaluate(st)
+    assert sig.vote == VOTE_BUY
+    assert sig.veto == VETO_SELL
+    assert sig.metadata.get("micro_sr_event") == "AT_MICRO_SUPPORT"
+
+    # 3. SPK Veto Engine must enforce HARD VETO (ANTI_SIDEWAY_TRAP)
+    veto_res = evaluate_vetoes([sig], st, ACTION_SELL, None)
+    assert veto_res.hard is True
+    assert "ANTI_SIDEWAY_TRAP" in (veto_res.reason or "")
+
+    # 4. OrderManager dynamic S/R gate must block SELL near support floor
+    om = OrderManager(client=MockMT5Client(), settings=settings)
+    blocked, reason = om._check_dynamic_sr_boundary(ACTION_SELL, 4115.50, st)
+    assert blocked is True
+    assert "Blocked SELL near support floor" in reason
+

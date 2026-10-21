@@ -257,24 +257,24 @@ class SupportResistance(TechnicalAgent):
                         veto=VETO_BUY,
                     )
 
-                # 1. Confirmed M1 Breakout / Breakdown OR Active Trend Expansion (Stage 2)
-                if close < (m1_support - buf) or (regime.is_trending and regime.direction == "SELL" and pos_pct <= 0.40):
-                    meta["micro_sr_event"] = "CONFIRMED_MICRO_BREAKDOWN" if close < (m1_support - buf) else "TREND_BEAR_EXPANSION"
+                # 1. Confirmed M1 Breakout / Breakdown (Must genuinely close beyond boundary buffer)
+                if close < (m1_support - buf):
+                    meta["micro_sr_event"] = "CONFIRMED_MICRO_BREAKDOWN"
                     return self.signal(
                         VOTE_SELL,
                         0.85 if regime.is_trending else 0.80,
-                        f"bearish expansion below micro-support (${m1_support:.2f}) [{regime.description}]",
+                        f"confirmed breakdown below micro-support (${m1_support:.2f} - ${buf:.2f}) [{regime.description}]",
                         meta,
-                        veto=VETO_BUY,  # Strictly forbid buying against active downtrend!
+                        veto=VETO_BUY,  # Strictly forbid buying against active breakdown!
                     )
-                if close > (m1_resistance + buf) or (regime.is_trending and regime.direction == "BUY" and pos_pct >= 0.60):
-                    meta["micro_sr_event"] = "CONFIRMED_MICRO_BREAKOUT" if close > (m1_resistance + buf) else "TREND_BULL_EXPANSION"
+                if close > (m1_resistance + buf):
+                    meta["micro_sr_event"] = "CONFIRMED_MICRO_BREAKOUT"
                     return self.signal(
                         VOTE_BUY,
                         0.85 if regime.is_trending else 0.80,
-                        f"bullish expansion above micro-resistance (${m1_resistance:.2f}) [{regime.description}]",
+                        f"confirmed breakout above micro-resistance (${m1_resistance:.2f} + ${buf:.2f}) [{regime.description}]",
                         meta,
-                        veto=VETO_SELL,  # Strictly forbid selling against active uptrend!
+                        veto=VETO_SELL,  # Strictly forbid selling against active breakout!
                     )
 
                 # 2. Stage 3: Trend Exhaustion (Overextended - Banned from chasing bottom/top)
