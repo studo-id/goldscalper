@@ -1,9 +1,12 @@
 """Tests for the timeframe division (7 scouts + synthetic DXY)."""
 
 from __future__ import annotations
+from datetime import datetime, timedelta, timezone
 
-from datetime import UTC, datetime, timedelta
-
+try:
+    from datetime import UTC
+except ImportError:
+    UTC = timezone.utc
 from agents.divisions.timeframe import (
     D1Macro,
     H1Regime,

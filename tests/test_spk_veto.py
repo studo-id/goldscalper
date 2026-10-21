@@ -392,12 +392,17 @@ def test_counter_trend_defense_blocks_buy_during_h1_d1_downtrend() -> None:
     signals = [h1_sig, d1_sig] + m1_buy
     state = SharedState(daily_pnl_pct=-3.0)
 
-    # 1. Counter-trend BUY is strictly blocked by COUNTER_TREND_DEFENSE
-    result_buy = evaluate(signals, state, ACTION_BUY)
+    # 1. When counter_trend_defense_block_enabled is True, BUY is strictly blocked
+    result_buy = evaluate(signals, state, ACTION_BUY, params=VetoParams(counter_trend_defense_block_enabled=True))
     assert result_buy.hard is True
     assert "COUNTER_TREND_DEFENSE" in (result_buy.reason or "")
 
-    # 2. But SELL with the trend is completely allowed!
+    # 2. When disabled (default for M1 scalper), BUY is softened to confidence penalty
+    result_soft = evaluate(signals, state, ACTION_BUY)
+    assert result_soft.hard is False
+    assert result_soft.confidence_delta < 0.0
+
+    # 3. But SELL with the trend is completely allowed!
     result_sell = evaluate(signals, state, ACTION_SELL)
     assert result_sell.hard is False
 

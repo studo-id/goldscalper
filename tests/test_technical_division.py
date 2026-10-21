@@ -180,9 +180,11 @@ async def test_support_resistance_m1_mid_dead_zone_veto_all() -> None:
     m1_rows = [(2355, 2360.0, 2350.0, 2355.0) for _ in range(20)]
     
     st = state(frames={"M5": _frame("M5", m5_rows), "M1": _frame("M1", m1_rows)})
-    sig = await SupportResistance().evaluate(st)
+    agent = SupportResistance()
+    agent.dead_zone_enabled = True
+    sig = await agent.evaluate(st)
     
-    # Must activate hard VETO_ALL to prevent any entries inside the mid-channel chop!
+    # Must activate hard VETO_ALL when dead_zone_enabled is True!
     assert sig.veto == VETO_ALL
     assert sig.vote == VOTE_NEUTRAL
     assert "veto all entries" in sig.reasoning

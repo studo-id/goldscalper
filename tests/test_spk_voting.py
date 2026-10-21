@@ -93,3 +93,23 @@ def test_action_for_score_finish_line_proximity() -> None:
     # Right at the finish line (only $5 left), entry bar is tightened to avoid risking target
     assert action_for_score(0.55, t, portfolio_state={"remaining_target_usd": 5.0}) == (ACTION_HOLD, STRENGTH_NONE)
 
+
+def test_action_for_score_m1_sniper_fast_lane() -> None:
+    t = SPKThresholds(strong=2.0, weak=0.5)
+    # M1 Sniper signal with high conviction (0.75)
+    m1_sig = AgentSignal(
+        agent_id="TF-M1-Sniper",
+        division="timeframe",
+        vote=1,
+        confidence=0.75,
+        weight=1.2,
+    )
+    result = aggregate([m1_sig])
+    assert result.has_m1_sniper_buy is True
+
+    # Modest score 0.40 would normally be rejected by lone agent threshold (0.55),
+    # but with M1 Fast-Lane active, it smoothly executes BUY!
+    action, strength = action_for_score(0.40, t, result=result)
+    assert action == ACTION_BUY
+    assert strength == STRENGTH_NORMAL
+

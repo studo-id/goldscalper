@@ -38,6 +38,8 @@ class VotingResult:
     division_scores: dict[str, float] = field(default_factory=dict)
     has_ping_pong_buy: bool = False
     has_ping_pong_sell: bool = False
+    has_m1_sniper_buy: bool = False
+    has_m1_sniper_sell: bool = False
 
 
 def aggregate(signals: list[AgentSignal]) -> VotingResult:
@@ -72,6 +74,14 @@ def aggregate(signals: list[AgentSignal]) -> VotingResult:
         and sig.metadata.get("ping_pong_side") == "SELL"
         for sig in signals
     )
+    has_m1_buy = any(
+        getattr(sig, "agent_id", "") == "TF-M1-Sniper" and sig.vote > 0 and (sig.confidence or 0.0) >= 0.70
+        for sig in signals
+    )
+    has_m1_sell = any(
+        getattr(sig, "agent_id", "") == "TF-M1-Sniper" and sig.vote < 0 and (sig.confidence or 0.0) >= 0.70
+        for sig in signals
+    )
     return VotingResult(
         score=round(net, 4),
         buy_score=round(buy, 4),
@@ -81,6 +91,8 @@ def aggregate(signals: list[AgentSignal]) -> VotingResult:
         division_scores={k: round(v, 4) for k, v in division_scores.items()},
         has_ping_pong_buy=has_pp_buy,
         has_ping_pong_sell=has_pp_sell,
+        has_m1_sniper_buy=has_m1_buy,
+        has_m1_sniper_sell=has_m1_sell,
     )
 
 
@@ -113,8 +125,12 @@ def action_for_score(
         else:
             agreeing_divs = 0
 
+        # M1 Sniper Fast-Lane Trigger (Active High-Conviction M1 Rejection/Momentum Scalp):
+        if (result.has_m1_sniper_buy and score > 0) or (result.has_m1_sniper_sell and score < 0):
+            weak_threshold = max(0.35, thresholds.weak * 0.70)
+            strong_threshold = max(1.2, thresholds.strong * 0.75)
         # Cylinder: Ping-Pong Sideways Rejection at support/resistance
-        if (result.has_ping_pong_buy and score > 0) or (result.has_ping_pong_sell and score < 0):
+        elif (result.has_ping_pong_buy and score > 0) or (result.has_ping_pong_sell and score < 0):
             weak_threshold = max(0.30, thresholds.weak * 0.60)
             strong_threshold = max(1.1, thresholds.strong * 0.70)
         # Cylinder 3: Predator Reload discount when momentum continuation is armed
@@ -127,11 +143,11 @@ def action_for_score(
             strong_threshold = max(1.5, thresholds.strong * 0.80)
         elif agreeing_divs >= 2:
             # 2 divisions agree: fast aggressive entry discount
-            weak_threshold = max(0.50, thresholds.weak * 0.85)
-            strong_threshold = max(1.7, thresholds.strong * 0.90)
+            weak_threshold = max(0.45, thresholds.weak * 0.85)
+            strong_threshold = max(1.5, thresholds.strong * 0.90)
         else:
-            # Lone agent or single division: require solid evidence to avoid 1-minute noise
-            weak_threshold = max(0.85, thresholds.weak * 1.4)
+            # Lone agent or single division: require reasonable evidence (calibrated from 0.85 to 0.55 for scalper)
+            weak_threshold = max(0.55, thresholds.weak * 1.10)
 
     # Dynamic SPK Portfolio & Daily Target Modulation:
     if portfolio_state:

@@ -93,8 +93,8 @@ class Settings(BaseSettings):
 
     # --- Dynamic SPK Confidence Floor (Portfolio & Target Seek Juggler) ---
     min_confidence_floor_normal: float = 0.25   # Baseline confidence floor in normal/growth mode
-    min_confidence_floor_defense: float = 0.25  # Base confidence floor in defense mode (dynamically scales with drawdown)
-    counter_trend_defense_block_enabled: bool = True  # Block counter-trend trades against confirmed H1/D1 in Defense Mode
+    min_confidence_floor_defense: float = 0.30  # Base confidence floor in defense mode (dynamically scales with drawdown)
+    counter_trend_defense_block_enabled: bool = False  # Soft penalty and min lot for counter-trend in defense (never hard freeze)
 
     # --- Institutional SMC & Session Disciplines (Top-Down, OB, News & Session Clocks) ---
     news_blackout_pre_minutes: int = 30       # 30 mins before high-impact news release
@@ -152,19 +152,12 @@ class Settings(BaseSettings):
     fast_breakeven_pips: float = 12.0           # Scalper BE lock distance (pips on XAUUSD)
 
     # --- Micro S/R & M1 Anti-Chasing Dead Zone Protection ---
-    micro_sr_veto_enabled: bool = True
-    micro_sr_lookback_m1: int = 20
-    micro_sr_confirm_range_usd: float = 1.20
-    micro_sr_dead_zone_enabled: bool = True
+    micro_sr_dead_zone_enabled: bool = False    # Disabled by default so M1 scalper can trade micro-momentum
     micro_sr_dead_zone_max_span: float = 12.00  # Max M1 span (USD) to enforce 30/40/30 dead zone
 
     # --- Scalper Radar Inactivity Watchdog (M1/M5 Intelligence) ---
     radar_watchdog_enabled: bool = True
     radar_report_interval_s: int = 300          # 5 minutes: emit scalper radar report if no trades
-
-    # --- SPK Confidence Floors (Scalper Frequency Calibration) ---
-    min_confidence_floor_normal: float = 0.35   # Normal/growth mode floor (calibrated for scalper)
-    min_confidence_floor_defense: float = 0.38  # Drawdown defense mode floor (relaxed from 0.50)
 
     # --- BizDev: Rebate & Friction Engine ---
     bizdev_enabled: bool = True

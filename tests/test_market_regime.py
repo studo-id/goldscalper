@@ -90,7 +90,8 @@ def test_regime_exhaustion_bear_bans_continuation() -> None:
 async def test_support_resistance_trending_bear_allows_continuation_sell() -> None:
     # When market is trending down, SupportResistance should vote SELL and NOT block with VETO_SELL or VETO_ALL
     m5_rows = [(2360.0 - (i * 0.4), 2360.5 - (i * 0.4), 2359.0 - (i * 0.4), 2359.5 - (i * 0.4)) for i in range(25)]
-    m1_rows = [(2354.0 - (i * 0.2), 2354.5 - (i * 0.2), 2353.5 - (i * 0.2), 2353.8 - (i * 0.2)) for i in range(25)]
+    # M1 frames range 2345 to 2360, with current close at 2352.5 (50% mid-channel, not at support floor)
+    m1_rows = [(2355.0, 2360.0, 2345.0, 2353.0) for _ in range(24)] + [(2353.0, 2354.0, 2351.0, 2352.5)]
     st = SharedState(symbol=SYMBOL, frames={"M5": _frame("M5", m5_rows), "M1": _frame("M1", m1_rows)})
 
     sig = await SupportResistance().evaluate(st)

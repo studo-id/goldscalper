@@ -153,7 +153,7 @@ class SupportResistance(TechnicalAgent):
         self.micro_enabled: bool = getattr(self.s, "micro_sr_veto_enabled", True)
         self.micro_lookback: int = getattr(self.s, "micro_sr_lookback_m1", 20)
         self.confirm_range_usd: float = getattr(self.s, "micro_sr_confirm_range_usd", 1.20)
-        self.dead_zone_enabled: bool = getattr(self.s, "micro_sr_dead_zone_enabled", True)
+        self.dead_zone_enabled: bool = getattr(self.s, "micro_sr_dead_zone_enabled", False)
         self.dead_zone_max_span: float = getattr(self.s, "micro_sr_dead_zone_max_span", 12.00)
 
     async def evaluate(self, state: SharedState) -> AgentSignal:
@@ -206,9 +206,11 @@ class SupportResistance(TechnicalAgent):
             if b_m1.n >= 10:
                 close = b_m1.last_close
                 meta["close"] = round(close, 2)
-                m1_win = slice(-min(b_m1.n, self.micro_lookback), None)
-                m1_support = min(b_m1.lows[m1_win])
-                m1_resistance = max(b_m1.highs[m1_win])
+                lb = min(b_m1.n - 1, self.micro_lookback)
+                prior_lows = b_m1.lows[-lb - 1 : -1] if lb >= 2 else b_m1.lows
+                prior_highs = b_m1.highs[-lb - 1 : -1] if lb >= 2 else b_m1.highs
+                m1_support = min(prior_lows)
+                m1_resistance = max(prior_highs)
                 buf = float(self.confirm_range_usd)
                 m1_span = max(0.1, m1_resistance - m1_support)
                 pos_pct = max(0.0, min(1.0, (close - m1_support) / m1_span))

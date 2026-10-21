@@ -35,7 +35,7 @@ class VetoParams:
     min_confidence_floor: float = 0.0
     d1_macro_hard_veto_enabled: bool = False
     d1_macro_soft_penalty: float = 0.15
-    counter_trend_defense_block_enabled: bool = True
+    counter_trend_defense_block_enabled: bool = False
 
 
 @dataclass
@@ -128,6 +128,16 @@ def evaluate(
     for sig in signals:
         if sig.veto in (blocking_flag, VETO_ALL):
             if sig.veto == VETO_ALL:
+                m1_active = any(
+                    s.agent_id == "TF-M1-Sniper"
+                    and s.confidence >= 0.65
+                    and (s.vote > 0 if direction == ACTION_BUY else s.vote < 0)
+                    for s in signals
+                )
+                if m1_active:
+                    result.confidence_delta -= 0.15
+                    result.notes.append(f"{sig.agent_id}:VETO_ALL demoted to soft penalty by active M1 Sniper trigger")
+                    continue
                 return VetoResult(
                     hard=True,
                     reason=f"HARD BARRIER: {sig.agent_id} blocked trade in M1 mid-range dead zone ({sig.reasoning})",
@@ -152,7 +162,6 @@ def evaluate(
                     state.extra["active_sr_barrier_reason"] = sig.reasoning
 
                 market_regime = state.extra.get("market_regime") if (state and hasattr(state, "extra") and isinstance(state.extra, dict)) else None
-                m1_span = float(state.extra.get("m1_span", 0.0) or 0.0) if (state and hasattr(state, "extra") and isinstance(state.extra, dict)) else 0.0
 
                 # 1. CRITICAL ANTI-SUICIDE IN SIDEWAY REGIMES (Anti-Pucuk & Anti-Lembah):
                 # In a SIDEWAY / range-bound market, S/R boundaries are BOUNCE WALLS, NOT breakout corridors!
@@ -162,9 +171,8 @@ def evaluate(
                     or sideways_mode
                     or is_ping_pong
                     or (state and hasattr(state, "extra") and isinstance(state.extra, dict) and state.extra.get("sideways_range"))
-                    or (m1_span > 0 and m1_span <= 10.0 and "CONFIRMED_MICRO" not in (sig.reasoning or ""))
                 )
-                if is_sideway:
+                if is_sideway and not any(s.agent_id == "TF-M1-Sniper" and s.confidence >= 0.75 for s in signals):
                     boundary_name = "SUPPORT FLOOR" if direction == ACTION_SELL else "RESISTANCE CEILING"
                     return VetoResult(
                         hard=True,

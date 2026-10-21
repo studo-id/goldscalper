@@ -434,13 +434,13 @@ class Runtime:
                         log_tag = "TP" if is_win else "COLLECTIVE CUT"
                         log.info("BASKET %s EXECUTED for %d %s positions", log_tag, len(group), side_name)
                         if is_win:
-                            self.order_manager.arm_cooldown(120, reason="post_basket_tp")
+                            self.order_manager.arm_cooldown(25, reason="post_basket_tp")
                             if self.settings.predator_reload_enabled:
                                 self._predator_reload_side = side_name
                                 self._predator_reload_expiry = utcnow() + timedelta(seconds=self.settings.predator_reload_window_s)
                                 log.info("PREDATOR RELOAD ARMED for %s (window=%ds)", side_name, self.settings.predator_reload_window_s)
                         else:
-                            self.order_manager.arm_cooldown(90, reason="post_basket_cut")
+                            self.order_manager.arm_cooldown(30, reason="post_basket_cut")
 
                         # Mark individual tickets so _finalize_closed inherits basket outcome
                         for p in group:
@@ -498,10 +498,10 @@ class Runtime:
                         context=ticket_ctx,
                     )
                     if any("clamp" in a or "cut" in a for a in act):
-                        self.order_manager.arm_cooldown(90, reason="post_cutloss_clamp")
+                        self.order_manager.arm_cooldown(25, reason="post_cutloss_clamp")
                     elif any("harvest" in a or "tp" in a for a in act):
                         regime = (self.orchestrator.last_state.extra.get("market_regime") if (self.orchestrator.last_state and self.orchestrator.last_state.extra) else "SIDEWAY")
-                        win_cd = 35 if "TRENDING" in str(regime) else 50
+                        win_cd = 15 if "TRENDING" in str(regime) else 20
                         self.order_manager.arm_cooldown(win_cd, reason="post_profit_harvest")
                 except Exception as exc:  # noqa: BLE001
                     log.warning("position manage failed (%s): %s", ticket, exc)
@@ -528,10 +528,10 @@ class Runtime:
         if not self._trades:
             if pnl > 0:
                 regime = (self.orchestrator.last_state.extra.get("market_regime") if (self.orchestrator.last_state and self.orchestrator.last_state.extra) else "SIDEWAY")
-                win_cd = 35 if "TRENDING" in str(regime) else 50
+                win_cd = 15 if "TRENDING" in str(regime) else 20
                 self.order_manager.arm_cooldown(win_cd, reason="post_win_chaining")
             else:
-                self.order_manager.arm_cooldown(75, reason="post_trade_close")
+                self.order_manager.arm_cooldown(25, reason="post_trade_close")
 
         # Update daily telemetry and BizDev trackers
         self._daily_realized_pnl += pnl

@@ -35,7 +35,45 @@ Aturan singkat:
 
 ---
 
-## 2026-10-21 — Fix Disparitas Timeframe M1/M5 & Blokade Trend Continuation di Atap Resisten / Lantai Support
+## 2026-10-21 — Pembebasan Gridlock Scalper: M1 Sniper Fast-Lane, Eliminasi VETO_ALL, & Pemangkasan Cooldown Tidur
+
+**Phase / Area:** SPK Core, Voting, Veto Engine, Settings & Runtime (`spk/voting.py`, `spk/veto.py`, `config/settings.py`, `runtime.py`, `agents/divisions/technical/agents.py`)  
+**Status:** Done & Verified (147 passed)
+
+**Yang dikerjakan:**
+1. **Penyelidikan Mendalam Terhadap Fenomena "Bot Tidur Terus / M1 Tidak Entry":**
+   - Ditemukan kebuntuan matematis berlapis (*gridlock*) yang mematikan eksekusi M1:
+     - Area tengah 40% channel M1 diblokir mutlak oleh `VETO_ALL` (`Tech-SupportResistance`).
+     - Area bawah 30% diblokir SELL oleh `ANTI_SIDEWAY_TRAP` (akibat klausa salah kaprah `m1_span <= 10.0` yang membuat pasar terbaca sideway 99% dari waktu).
+     - Area atas 30% diblokir BUY oleh batas resisten.
+     - Ambang batas konsensus SPK menuntut minimal 2–3 divisi sepakat; jika hanya M1 yang melihat peluang, threshold dinaikkan ke 0.85 sehingga sinyal M1 selalu mati (*drowned out*).
+     - Cooldown pasca-trade yang terlampau lama (50–90 detik) menyebabkan bot selalu ketinggalan setup candle M1 berikutnya.
+2. **Implementasi M1 Sniper Fast-Lane di SPK Voting (`spk/voting.py`):**
+   - Menambahkan field `has_m1_sniper_buy` dan `has_m1_sniper_sell` pada `VotingResult` dan agregator sinyal.
+   - Jika `TF-M1-Sniper` memiliki keyakinan tinggi ($\ge 0.70$), SPK memberikan diskon ambang batas masuk (`weak_threshold = 0.35 - 0.40`), memungkinkan eksekusi kilat tanpa harus menunggu konsensus multi-divisi yang lambat.
+   - Ambang batas *lone agent / single division* dilonggarkan dari 0.85 menjadi 0.55 agar sinyal satu divisi berbobot tidak lagi dibekukan.
+3. **De-eskalasi Veto & Eliminasi `VETO_ALL` (`spk/veto.py` & `config/settings.py`):**
+   - Default `micro_sr_dead_zone_enabled` dimatikan (`False`), membebaskan area tengah channel M1 untuk eksekusi momentum.
+   - Jika `VETO_ALL` muncul namun `TF-M1-Sniper` mendeteksi momentum aktif, `VETO_ALL` otomatis didemosi menjadi soft note/penalty, tidak lagi menjadi hard kill switch.
+   - Menghapus klausa `m1_span <= 10.0` dari evaluasi `is_sideway` di `spk/veto.py`.
+   - Mengubah `counter_trend_defense_block_enabled` menjadi `False` secara default: counter-trend terhadap HTF H1/D1 di mode Defense didemosi menjadi penalti confidence dan pengecilan lot (0.01 lot) alih-alih pembatalan mutlak.
+4. **Koreksi Lookback Window Prior Bars di `SupportResistanceAgent`:**
+   - Memperbaiki kalkulasi `m1_support` dan `m1_resistance` agar mengacu pada bar-bar yang telah tertutup (`[-lb - 1 : -1]`), bukan mengikutkan candle live berjalan (`slice(-lb, None)`).
+5. **Pemangkasan Cooldown Tidur di `runtime.py`:**
+   - Cooldown pasca-win dipangkas menjadi 15–20 detik (sebelumnya 35–50s).
+   - Cooldown pasca-cutloss dipangkas menjadi 25 detik (sebelumnya 75–90s).
+   - Cooldown pasca-basket TP dipangkas menjadi 25 detik (sebelumnya 120s).
+
+**File tersentuh:**
+- `config/settings.py` — Pengaturan default ramah scalping M1 (`micro_sr_dead_zone_enabled=False`, `counter_trend_defense_block_enabled=False`).
+- `spk/voting.py` — Jalur M1 Sniper Fast-Lane dan re-kalibrasi threshold.
+- `spk/veto.py` — Demosi `VETO_ALL` jika M1 aktif, penghapusan klausa sideway trap lumpuh.
+- `agents/divisions/technical/agents.py` — Lookback prior bars M1 dan sinkronisasi default dead zone.
+- `runtime.py` — Pemangkasan timer cooldown eksekusi.
+- `tests/test_spk_voting.py`, `tests/test_spk_veto.py`, `tests/test_technical_division.py`, `tests/test_market_regime.py` — Sinkronisasi unit tests.
+
+**Verifikasi:**
+- `uv run pytest tests/test_spk_voting.py tests/test_spk_veto.py tests/test_spk_core_division.py tests/test_technical_division.py tests/test_market_regime.py tests/test_runtime.py tests/test_execution.py tests/test_risk_division.py` → **147 passed in 0.72s**.
 
 **Phase / Area:** Technical Division & Consensus Risk Guard (`agents/divisions/technical/agents.py`, `tests/test_technical_division.py`)  
 **Status:** Done & Verified (24 passed, live deployed)
