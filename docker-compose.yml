@@ -74,6 +74,7 @@ services:
       - ./runtime.py:/app/runtime.py
     networks:
       - gs-net
+      - aceng-net
 
   mt5:
     image: gmag11/metatrader5_vnc:latest
@@ -113,3 +114,5 @@ volumes:
 networks:
   gs-net:
     name: gs-net
+  aceng-net:
+    external: true
