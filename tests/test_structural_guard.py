@@ -238,4 +238,65 @@ def test_anti_wick_panic_protects_minor_wick_spike():
     assert "STRUCTURAL BREACH" in eval_60s.reasoning
 
 
+def test_m1_candle_close_confirmation_for_sl():
+    """Verify that minor wick breaches (<=15 pips) do NOT cut loss until M1 candle closes beyond Line X."""
+    guard = StructuralGuard(buffer_pips=8.0)
+
+    # Support swing at 4136.0 (Line X = 4135.20)
+    h1_prices = [(4140.0, 4145.0, 4136.0, 4142.0) for _ in range(5)]
+
+    # Case 1: M1 completed candle closed ABOVE Line X at 4136.50
+    # Current active candle wicks down to 4135.00 (overshoot 2.0 pips) at held=120s
+    m1_unconfirmed = [
+        (4138.0, 4139.0, 4136.0, 4136.50),  # Last closed M1 candle: close=4136.50 (SAFE > Line X 4135.20)
+        (4136.50, 4136.80, 4134.80, 4135.00),  # Forming active bar wicking down
+    ]
+    st_unconfirmed = SharedState(
+        symbol="XAUUSD",
+        frames={"H1": _make_candles("H1", h1_prices), "M1": _make_candles("M1", m1_unconfirmed)},
+    )
+
+    eval_wick = guard.evaluate_invalidation(
+        side="BUY",
+        entry_price=4138.50,
+        current_price=4135.00,
+        volume=0.04,
+        state=st_unconfirmed,
+        held_seconds=120.0,
+        max_risk_usd=12.0,
+    )
+
+    # Must HOLD because M1 candle has not closed below Line X yet!
+    assert eval_wick.is_breached is True
+    assert eval_wick.is_hard_breached is False
+    assert eval_wick.recommendation == "HOLD"
+    assert "ANTI-WICK SHIELD" in eval_wick.reasoning
+
+    # Case 2: Once M1 candle genuinely CLOSES below Line X at 4134.90
+    m1_confirmed = [
+        (4136.50, 4136.80, 4134.80, 4134.90),  # Last closed M1: close=4134.90 (CONFIRMED < Line X 4135.20)
+        (4134.90, 4135.10, 4134.50, 4134.80),
+    ]
+    st_confirmed = SharedState(
+        symbol="XAUUSD",
+        frames={"H1": _make_candles("H1", h1_prices), "M1": _make_candles("M1", m1_confirmed)},
+    )
+
+    eval_confirmed = guard.evaluate_invalidation(
+        side="BUY",
+        entry_price=4138.50,
+        current_price=4134.80,
+        volume=0.04,
+        state=st_confirmed,
+        held_seconds=125.0,
+        max_risk_usd=12.0,
+    )
+
+    # Now confirmed by M1 candle close -> CUT_LOSS!
+    assert eval_confirmed.is_hard_breached is True
+    assert eval_confirmed.recommendation == "CUT_LOSS"
+    assert "STRUCTURAL BREACH" in eval_confirmed.reasoning
+
+
+
 

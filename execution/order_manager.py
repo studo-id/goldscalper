@@ -184,6 +184,13 @@ class OrderManager:
             log.warning("DYNAMIC DATA GATE: %s", sr_reason)
             return ExecutionResult(ok=False, reason=sr_reason)
 
+        # Adverse Candle Momentum Guard (Anti-Falling Knife & Anti-Rocket Surge):
+        # Applies to BOTH Initial Entry (open_count == 0) and Layered entries.
+        blocked_momentum, mom_reason = self._check_adverse_candle_momentum(decision.action, state)
+        if blocked_momentum:
+            log.warning("MOMENTUM CANDLE GUARD: %s", mom_reason)
+            return ExecutionResult(ok=False, reason=mom_reason)
+
         # Multi-Entry & Smart Rescue Recovery Evaluation
         if open_count > 0:
             if not self.settings.multi_entry_enabled:
@@ -616,3 +623,79 @@ class OrderManager:
 
     # Backward compatibility alias
     _check_opposite_sr_barrier = _check_dynamic_sr_boundary
+
+    def _check_adverse_candle_momentum(
+        self, action: str, state: SharedState | None
+    ) -> tuple[bool, str]:
+        """Anti-Falling Knife & Anti-Rocket Surge Guard.
+
+        Prevents opening an initial or rescue order in the middle of a high-velocity
+        candle slamming down or rocket spiking.
+        """
+        if state is None or not state.frames:
+            return False, ""
+
+        m1_bars = state.frames.get("M1")
+        if not m1_bars or len(m1_bars) < 2:
+            return False, ""
+
+        def _val(b: Any, field_name: str) -> float:
+            if isinstance(b, dict):
+                return float(b.get(field_name, 0.0) or 0.0)
+            return float(getattr(b, field_name, 0.0) or 0.0)
+
+        cur_bar = m1_bars[-1]
+        cur_open = _val(cur_bar, "open")
+        cur_close = _val(cur_bar, "close")
+        cur_high = _val(cur_bar, "high")
+        cur_low = _val(cur_bar, "low")
+        cur_span = max(0.01, cur_high - cur_low)
+
+        lookback = min(3, len(m1_bars))
+        recent_bars = m1_bars[-lookback:]
+
+        if action == ACTION_BUY:
+            # 1. Single-bar flash dump in active M1 candle: drop >= $1.80 (18 pips) and red
+            cur_drop = cur_open - cur_close
+            lower_wick = max(0.0, cur_close - cur_low) / cur_span if cur_span > 0 else 0.0
+
+            # If current bar is actively dropping heavily and has no strong rejection wick (lower wick < 35%)
+            if cur_drop >= 1.80 and lower_wick < 0.35:
+                return (
+                    True,
+                    f"falling knife guard: active flash dump (current candle dropping -${cur_drop:.2f} USD / {cur_drop*10:.0f} pips)",
+                )
+
+            # 2. Multi-bar cascading waterfall: last 2-3 bars are all red with cumulative adverse drop >= $3.00 (30 pips)
+            all_red = all(_val(b, "close") < _val(b, "open") for b in recent_bars)
+            cascade_drop = _val(recent_bars[0], "open") - cur_close
+            has_flash_drop = any((_val(b, "open") - _val(b, "close")) >= 1.80 for b in recent_bars)
+            if all_red and (cascade_drop >= 3.00 or has_flash_drop) and cur_close < cur_open:
+                return (
+                    True,
+                    f"falling knife guard: cascade drop -${cascade_drop:.2f} USD across {lookback} bars",
+                )
+
+        elif action == ACTION_SELL:
+            # 1. Single-bar flash pump in active M1 candle: surge >= $1.80 (18 pips) and green
+            cur_pump = cur_close - cur_open
+            upper_wick = max(0.0, cur_high - cur_close) / cur_span if cur_span > 0 else 0.0
+
+            # If current bar is actively surging heavily and has no strong rejection wick (upper wick < 35%)
+            if cur_pump >= 1.80 and upper_wick < 0.35:
+                return (
+                    True,
+                    f"rocket surge guard: active rocket pump (current candle surging +${cur_pump:.2f} USD / {cur_pump*10:.0f} pips)",
+                )
+
+            # 2. Multi-bar cascading rocket: last 2-3 bars are all green with cumulative adverse surge >= $3.00 (30 pips)
+            all_green = all(_val(b, "close") > _val(b, "open") for b in recent_bars)
+            cascade_pump = cur_close - _val(recent_bars[0], "open")
+            has_flash_pump = any((_val(b, "close") - _val(b, "open")) >= 1.80 for b in recent_bars)
+            if all_green and (cascade_pump >= 3.00 or has_flash_pump) and cur_close > cur_open:
+                return (
+                    True,
+                    f"rocket surge guard: cascade pump +${cascade_pump:.2f} USD across {lookback} bars",
+                )
+
+        return False, ""

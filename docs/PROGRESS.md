@@ -35,6 +35,31 @@ Aturan singkat:
 
 ---
 
+## 2026-10-21 — SATPAM M1 Candle Close SL Confirmation & Initial Entry Falling Knife Guard (`execution/structural_guard.py`, `execution/order_manager.py`)
+
+**Phase / Area:** Phase 14 / Execution Layer & Anti-Bleeding Matrix  
+**Status:** Done  
+
+**Yang dikerjakan**
+- **Audit Kasus Tiket #4907813571:**
+  1. Entry terjadi saat harga sedang jatuh dari 4141 ke 4138 karena `Falling Knife Guard` sebelumnya hanya aktif untuk Layer 2 (Rescue), sementara Entry Pertama (`open_count == 0`) belum terlindungi.
+  2. Cut loss pada detik 159 terjadi karena live tick menusuk 2 pips melewati Garis X (4135.63) tanpa menunggu candle M1 tersebut benar-benar ditutup (CLOSE) di bawah Garis X.
+- **M1 Candle Close Confirmation untuk Line X SL:** Memperbarui `StructuralGuard.evaluate_invalidation()` agar pelanggaran minor Garis X ($\le 15$ pips) mewajibkan konfirmasi penutupan candle M1 (`m1_confirmed_close`), mencegah posisi terpotong oleh spike jarum (*wick sweep*). Pelanggaran katastropik darurat ($>15$ pips) tetap di-cut seketika untuk perlindungan balance.
+- **Initial Entry Falling Knife & Rocket Surge Guard:** Memperluas `_check_adverse_candle_momentum()` di `OrderManager.execute()` agar aktif untuk **Entry Pertama (`open_count == 0`)**. Memblokir BUY jika lilin M1 sedang mengalami flash dump ($\ge 18$ pips drop) atau cascade drop $\ge 30$ pips. Memblokir SELL jika lilin M1 sedang mengalami flash pump ($\ge 18$ pips surge) atau cascade surge $\ge 30$ pips.
+- **Unit Tests:** Menambahkan `test_m1_candle_close_confirmation_for_sl` di `tests/test_structural_guard.py` dan `test_order_manager_initial_entry_falling_knife_guard` di `tests/test_execution.py`.
+
+**File tersentuh**
+- `execution/structural_guard.py` — Integrasi konfirmasi M1 candle close pada Line X breach.
+- `execution/order_manager.py` — Implementasi `_check_adverse_candle_momentum` pada initial entry `open_count == 0`.
+- `tests/test_structural_guard.py` — Unit test skenario candle close confirmation vs unconfirmed wick probe.
+- `tests/test_execution.py` — Unit test skenario initial entry falling knife & rocket surge blocker.
+
+**Verifikasi**
+- `pytest tests/test_execution.py tests/test_structural_guard.py tests/test_technical_division.py` → 58 passed in 0.36s.
+
+**Catatan / Next**
+- Deploy file ke live server (`studo@100.114.150.48`), restart `gs-bot`, dan verifikasi live trade logs.
+
 ## 2026-10-21 — M1 Candle-Aware Cutloss Cooldown & Anti-Probing S/R Ceiling Guard (`execution/order_manager.py`, `runtime.py`, `agents/divisions/technical/agents.py`)
 
 **Phase / Area:** Phase 14 / Execution Layer & Anti-Chasing Matrix  

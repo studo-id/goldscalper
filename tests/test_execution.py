@@ -608,6 +608,33 @@ async def test_order_manager_blocks_probing_sr_boundaries() -> None:
     assert "Blocked SELL probing below support floor" in (res_sell.reason or "")
 
 
+async def test_order_manager_initial_entry_falling_knife_guard() -> None:
+    """Verify that initial entry (open_count == 0) is strictly blocked during flash dump or rocket surge."""
+    client = MockMT5Client()
+    om = OrderManager(client=client, settings=settings)
+
+    # 1. Initial BUY attempted while active M1 candle is an active flash dump (-$2.50 drop)
+    m1_dump = [
+        {"open": 2355.0, "high": 2355.2, "low": 2354.8, "close": 2355.0},
+        {"open": 2355.0, "high": 2355.0, "low": 2352.4, "close": 2352.5},  # Drop $2.50, lower wick tiny
+    ]
+    st_dump = SharedState(symbol="XAUUSDm", frames={"M1": m1_dump})
+    res_buy = await om.execute(_decision(action=ACTION_BUY, entry=2352.5), state=st_dump)
+    assert res_buy is not None and not res_buy.ok
+    assert "falling knife guard" in (res_buy.reason or "")
+
+    # 2. Initial SELL attempted while active M1 candle is an active rocket pump (+$2.50 surge)
+    m1_pump = [
+        {"open": 2350.0, "high": 2350.2, "low": 2349.8, "close": 2350.0},
+        {"open": 2350.0, "high": 2352.6, "low": 2350.0, "close": 2352.5},  # Surge $2.50, upper wick tiny
+    ]
+    st_pump = SharedState(symbol="XAUUSDm", frames={"M1": m1_pump})
+    res_sell = await om.execute(_decision(action=ACTION_SELL, entry=2352.5), state=st_pump)
+    assert res_sell is not None and not res_sell.ok
+    assert "rocket surge guard" in (res_sell.reason or "")
+
+
+
 
 
 

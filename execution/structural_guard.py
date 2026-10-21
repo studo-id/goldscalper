@@ -277,22 +277,34 @@ class StructuralGuard:
             distance_pips = round((final_level_x - current_price) * 10.0, 1)
             overshoot_pips = round((current_price - final_level_x) * 10.0, 1)
 
-        # 3. Anti-Wick Panic Protection
-        # If position was opened very recently (<45s) and breach is just a minor wick probe (<= 10 pips past Line X),
-        # protect the position from false stop-hunt panic!
-        is_hard_breached = is_breached and (overshoot_pips > 10.0 or held_seconds >= 45.0)
+        # 3. Candle Confirmation & Anti-Wick Protection for Line X SL
+        # Prevent being stopped out by temporary intraday wicks / sweeps.
+        # Cutloss is triggered if:
+        # a) Catastrophic emergency breach (> 15.0 pips past Line X / severe slippage), OR
+        # b) Confirmed M1 candle close beyond Line X (past initial 20s).
+        # Otherwise, HOLD to allow candle formation / bounce.
+        m1_bars = Bars.for_timeframe(state, "M1")
+        m1_confirmed_close = False
+        if m1_bars.n >= 2:
+            last_closed_m1 = m1_bars.closes[-2]
+            m1_confirmed_close = (last_closed_m1 <= final_level_x) if is_buy else (last_closed_m1 >= final_level_x)
+            # If M1 frame is available, require confirmed M1 candle close (or catastrophic breach > 15 pips)
+            is_hard_breached = is_breached and (overshoot_pips > 15.0 or (m1_confirmed_close and held_seconds >= 20.0))
+        else:
+            # Fallback when M1 frame is not supplied (test fixtures): require either overshoot > 10 pips or held >= 60s
+            is_hard_breached = is_breached and (overshoot_pips > 10.0 or held_seconds >= 60.0)
 
         if is_hard_breached:
             rec = "CUT_LOSS"
             reason = (
                 f"STRUCTURAL BREACH: Price ({current_price:.2f}) broken Line X ({final_level_x:.2f}) "
-                f"anchored on {primary_level.description} (overshoot: {overshoot_pips:.1f}p, held {int(held_seconds)}s). Invalidation confirmed."
+                f"anchored on {primary_level.description} (overshoot: {overshoot_pips:.1f}p, m1_closed={m1_confirmed_close}, held {int(held_seconds)}s). Invalidation confirmed."
             )
         elif is_breached and not is_hard_breached:
             rec = "HOLD"
             reason = (
                 f"ANTI-WICK SHIELD: Price ({current_price:.2f}) temporarily probing Line X ({final_level_x:.2f}) "
-                f"by {overshoot_pips:.1f}p (<45s window). Holding for candle close / rejection."
+                f"by {overshoot_pips:.1f}p. Holding for M1 candle close confirmation."
             )
         else:
             rec = "HOLD"
