@@ -17,10 +17,12 @@ from config.settings import Settings
 from config.settings import settings as default_settings
 from core.clock import is_overnight_flat_window
 from core.mt5_connector import MT5Client, Position
+from execution.structural_guard import StructuralEvaluation, StructuralGuard
 
 log = get_logger("execution.position_manager")
 
 __all__ = ["PositionState", "PositionManager"]
+
 
 
 @dataclass
@@ -179,6 +181,7 @@ class PositionManager:
     def __post_init__(self) -> None:
         self._states: dict[int, PositionState] = {}
         self._basket_peak_profit: dict[str, float] = {}
+        self.structural_guard = StructuralGuard()
 
     def track(self, pos: Position) -> PositionState:
         state = self._states.get(pos.ticket)
@@ -290,11 +293,27 @@ class PositionManager:
             max_clamp_ceiling = round(s.hard_loss_clamp_usd * 1.35, 2)
             effective_clamp_usd = min(base_clamp, max_clamp_ceiling)
 
+            # --- SATPAM MULTI-TF STRUCTURAL & FIBONACCI EVALUATION (Line X) ---
+            state_obj = ctx.get("state")
+            structural_eval: StructuralEvaluation | None = None
+            if state_obj and getattr(state_obj, "frames", None):
+                try:
+                    structural_eval = self.structural_guard.evaluate_invalidation(
+                        side=pos.side,
+                        entry_price=pos.price_open,
+                        current_price=price,
+                        volume=pos.volume,
+                        state=state_obj,
+                        max_risk_usd=effective_clamp_usd,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("StructuralGuard evaluation failed for ticket %s: %s", pos.ticket, exc)
+
             # 2. Phase 0: Noise & M1 Candle Formation Grace Period (0 - 60s)
             # Strictly PROTECT unclosed M1 candle wicks (< 60s). Allow Rescue Layer 2 (>= 20 pips) to operate!
-            # Never cut early unless true runaway black-swan emergency gap (>= 45-50 pips / $35+)
+            # Tightened catastrophic gap: strictly max_clamp_ceiling * 1.25 to prevent -$16 runaway outlier!
             min_hold = getattr(s, "watchdog_min_hold_seconds", 60)
-            catastrophic_gap_usd = max(35.0, round(pos.volume * 4.50 * 100.0, 2))
+            catastrophic_gap_usd = round(max_clamp_ceiling * 1.25, 2)
             if held < min_hold and current_loss > -catastrophic_gap_usd:
                 pass  # Grace period: allow 1 full M1 candle (60s) to form cleanly without wick panic
 
@@ -313,9 +332,25 @@ class PositionManager:
                 actions.append("juggler_catastrophic_gap_cut")
                 return actions
 
-            # 3. Phase 1: Satpam M1/M5 Early Invalidation Cut (Cut Loss Dini setelah 1 Candle M1 Close)
+            # 3. Phase 1: Satpam Structural Invalidation or Early Adverse Alert
+            # If structural evaluation confirms Line X was breached, cut loss without waiting!
+            if structural_eval is not None and structural_eval.is_breached:
+                log.warning(
+                    "SATPAM STRUCTURAL INVALIDATION CUT: Cutting ticket %s (%s %.2f, loss=%.2f) — %s",
+                    pos.ticket,
+                    pos.side,
+                    pos.volume,
+                    current_loss,
+                    structural_eval.reasoning,
+                )
+                await self.client.close_position(pos.ticket, price=price)
+                self.untrack(pos.ticket)
+                actions.append("satpam_structural_cut")
+                return actions
+
             elif (
-                s.watchdog_early_invalidation_enabled
+                structural_eval is None
+                and s.watchdog_early_invalidation_enabled
                 and held >= min_hold
                 and current_loss <= -max(4.0, round(effective_clamp_usd * s.watchdog_early_loss_ratio, 2))
                 and watchdogs["invalidation_alert"]
@@ -336,7 +371,6 @@ class PositionManager:
                 return actions
 
             # 4. Phase 2: HTF Trend Breakdown (Early Cut — Do NOT Hope!)
-            # If floating loss >= 65% of clamp AND Higher Timeframes (H4/H1/M30/M15) are actively opposing us:
             is_htf_supporting = htf_bias.get("verdict") in ("SUPPORTING", "HTF_SUPPORTING")
             is_htf_opposing = htf_bias.get("verdict") in ("OPPOSING", "HTF_OPPOSING")
 
@@ -344,6 +378,7 @@ class PositionManager:
                 held >= min_hold
                 and current_loss <= -(effective_clamp_usd * 0.65)
                 and is_htf_opposing
+                and (structural_eval is None or structural_eval.is_breached or current_loss <= -(effective_clamp_usd * 0.85))
             ):
                 log.warning(
                     "JUGGLER HTF BREAKDOWN CUT: Ticket %s (%s %.2f, loss=%.2f <= -$%.2f) — HTF scouts opposing: %s",
@@ -359,26 +394,23 @@ class PositionManager:
                 actions.append("juggler_htf_breakdown_cut")
                 return actions
 
-            # 5. Phase 3: Dynamic Hard Clamp & HTF Reversal Shield
+            # 5. Phase 3: Dynamic Hard Clamp & Structural Fortress Shield
             elif s.hard_loss_clamp_enabled and held >= min_hold and current_loss <= -abs(effective_clamp_usd):
-                # When in an active multi-layer rescue basket, delegate loss management to manage_basket().
-                # Do NOT cut Layer 1 individually, as it breaks basket unity and strands the recovery position!
                 is_in_rescue_basket = bool(ctx.get("in_rescue_basket", False))
                 if is_in_rescue_basket:
                     pass  # Collective basket management takes precedence
                 else:
-                    # When HTF (H4/H1/M30/M15) or Satpam M5 supports the trade, grant reversal breathing room:
                     htf_reversal_clamp = max(16.0, round(effective_clamp_usd * 2.25, 2), round(pos.volume * 3.50 * 100.0, 2))
-                    is_m5_supporting = watchdogs.get("m5", {}).get("verdict") in ("SUPPORTING", "HTF_SUPPORTING")
-                    # M5 Pattern Reversal Hold: allow up to 90s for M5 candle to complete reversal
-                    can_reversal_hold = is_htf_supporting or (is_m5_supporting and held < 90)
                     reversal_clamp = htf_reversal_clamp if is_htf_supporting else round(effective_clamp_usd * 1.40, 2)
+                    is_structure_holding = (structural_eval is not None and not structural_eval.is_breached)
+                    is_m5_supporting = watchdogs.get("m5", {}).get("verdict") in ("SUPPORTING", "HTF_SUPPORTING")
+                    can_reversal_hold = is_structure_holding or is_htf_supporting or (is_m5_supporting and held < 90)
 
                     if can_reversal_hold and current_loss > -reversal_clamp:
-                        # Allow trend continuation / reversal room while structure is healthy
+                        # Allow bounce while price is safely fortified by Line X or supported by HTF
                         pass
                     else:
-                        clamp_reason = "HTF_EXHAUSTED" if is_htf_supporting else ("M5_EXHAUSTED" if is_m5_supporting else htf_bias.get("verdict", "NEUTRAL"))
+                        clamp_reason = "STRUCTURAL_BREACH" if (structural_eval and structural_eval.is_breached) else ("HTF_EXHAUSTED" if is_htf_supporting else ("M5_EXHAUSTED" if is_m5_supporting else htf_bias.get("verdict", "NEUTRAL")))
                         log.warning(
                             "JUGGLER DYNAMIC CLAMP: Cutting ticket %s (%s %.2f, loss=%.2f <= -$%.2f [HTF=%s (%s), avg_win $%.2f])",
                             pos.ticket,
@@ -395,10 +427,18 @@ class PositionManager:
                         actions.append("juggler_dynamic_clamp")
                         return actions
 
-            # 6. Phase 4: Duration Stagnation Cut (90s - 150s with no reversal momentum)
+            # 6. Phase 4: Structural Hold vs Duration Stagnation Cut
+            # If price is safely above/below Line X, DO NOT CUT ON SECONDS! Wait for the bounce!
             elif state.opened_at is not None and held >= 90:
                 duration_loss_limit = max(2.50, round(effective_clamp_usd * 0.60, 2))
-                if (
+                is_structure_holding = (structural_eval is not None and not structural_eval.is_breached)
+                htf_reversal_clamp = max(16.0, round(effective_clamp_usd * 2.25, 2), round(pos.volume * 3.50 * 100.0, 2))
+                reversal_clamp = htf_reversal_clamp if is_htf_supporting else round(effective_clamp_usd * 1.40, 2)
+
+                if is_structure_holding and current_loss > -reversal_clamp:
+                    # SATPAM: Hold to bounce! Market is testing S&R / Fib Golden Pocket.
+                    pass
+                elif (
                     current_loss <= -duration_loss_limit
                     and htf_bias["verdict"] != "HTF_SUPPORTING"
                     and (watchdogs["m1"]["verdict"] == "OPPOSING" or watchdogs["m5"]["verdict"] == "OPPOSING")
@@ -417,7 +457,12 @@ class PositionManager:
 
             # 7. Phase 5: Time-Decay Loss Cut (>180s)
             elif state.opened_at is not None and held >= s.loss_time_decay_seconds:
-                if current_loss <= -abs(s.loss_time_decay_min_loss_usd):
+                is_structure_holding = (structural_eval is not None and not structural_eval.is_breached)
+                htf_reversal_clamp = max(16.0, round(effective_clamp_usd * 2.25, 2), round(pos.volume * 3.50 * 100.0, 2))
+                reversal_clamp = htf_reversal_clamp if is_htf_supporting else round(effective_clamp_usd * 1.40, 2)
+                if is_structure_holding and current_loss > -reversal_clamp:
+                    pass
+                elif current_loss <= -abs(s.loss_time_decay_min_loss_usd):
                     log.info(
                         "JUGGLER TIME-DECAY CUT: Cutting stalled losing ticket %s (held %ds, loss=%.2f <= -$%.2f)",
                         pos.ticket,
@@ -429,6 +474,8 @@ class PositionManager:
                     self.untrack(pos.ticket)
                     actions.append("juggler_time_decay_cut")
                     return actions
+
+
 
         # --- THE JUGGLER: Dynamic Take-Profit & Target-Proximity Harvest ---
         if state.opened_at is not None:
@@ -513,20 +560,21 @@ class PositionManager:
             should_harvest = False
             harvest_reason = ""
             # Don't cut trades if HTF is supporting our direction — let trend develop
+            min_stagnant_profit = max(2.50, s.stagnant_min_profit_usd)
             if (
                 held >= s.stagnant_harvest_seconds
-                and current_profit >= s.stagnant_min_profit_usd
+                and current_profit >= min_stagnant_profit
                 and htf_bias["verdict"] != "HTF_SUPPORTING"
             ):
                 should_harvest = True
-                harvest_reason = f"stagnant profit (held {int(held)}s, pnl=+${current_profit:.2f} >= ${s.stagnant_min_profit_usd:.2f})"
+                harvest_reason = f"stagnant profit (held {int(held)}s, pnl=+${current_profit:.2f} >= ${min_stagnant_profit:.2f})"
             elif (
                 held >= s.stagnant_time_decay_seconds
-                and current_profit >= 0.50
+                and current_profit >= 2.00
                 and htf_bias["verdict"] != "HTF_SUPPORTING"
             ):
                 should_harvest = True
-                harvest_reason = f"time-decay salvage (held {int(held)}s, pnl=+${current_profit:.2f} >= $0.50)"
+                harvest_reason = f"time-decay salvage (held {int(held)}s, pnl=+${current_profit:.2f} >= $2.00)"
 
             if should_harvest:
                 log.info(

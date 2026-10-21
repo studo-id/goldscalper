@@ -5,6 +5,7 @@ from __future__ import annotations
 from execution.order_manager import ExecutionResult, OrderManager
 from execution.position_manager import PositionManager, PositionState
 from execution.risk_gate import RiskGateResult, apply, evaluate
+from execution.structural_guard import StructuralEvaluation, StructuralGuard, StructuralLevel
 
 __all__ = [
     "OrderManager",
@@ -14,4 +15,8 @@ __all__ = [
     "RiskGateResult",
     "apply",
     "evaluate",
+    "StructuralGuard",
+    "StructuralLevel",
+    "StructuralEvaluation",
 ]
+

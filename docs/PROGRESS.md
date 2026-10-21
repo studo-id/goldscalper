@@ -35,7 +35,40 @@ Aturan singkat:
 
 ---
 
+## 2026-10-21 — SATPAM Multi-TF Structural Guard & Fibonacci Dynamic SL Engine (`execution/structural_guard.py`, `execution/position_manager.py`)
+
+**Phase / Area:** Phase 14 / Execution Layer & Anti-Bleeding Matrix  
+**Status:** Done  
+
+**Yang dikerjakan**
+- **Mengeliminasi Cut Loss Buta Berbasis Detik:** Menghapus aturan `held >= 90s/120s` yang memotong trade prematur di tengah noise dan pullback sehat, yang sebelumnya menyebabkan 14 dari 19 trade loss dipotong di detik ke-90.
+- **Implementasi `StructuralGuard` (`execution/structural_guard.py`):**
+  - Pemindaian struktur pasar multi-timeframe berjenjang (M5, M15, H1, H4).
+  - Ekstraksi Swing High & Swing Low berbasis fractal pivot.
+  - Perhitungan otomatis Fibonacci Retracement (50.0%, 61.8% Golden Pocket, 78.6% Last Bastion Defense).
+  - Penentuan Garis $X$ (Structural Invalidation Line) dengan *protective breathing buffer* dan batas risiko hard boundary.
+- **Aturan Eksekusi SATPAM Real-Time:**
+  - *HOLD TO BOUNCE:* Selama harga belum menembus Garis $X$, posisi dipertahankan (hold) dan timer durasi dinonaktifkan untuk memberi ruang pantulan harga.
+  - *STRUCTURAL BREACH CUT:* Jika harga resmi menembus Garis $X$, SATPAM memotong posisi saat itu juga tanpa menunggu timer stopwatch.
+- **Melonggarkan Stagnant Harvest:** Menaikkan batas minimal harvest menjadi $\ge \$2.50$ agar winning trade tidak dicekik di profit mikro ($0.50 - $1.00), memungkinkan runner mencapai target profit penuh ($5.00 - $15.00+).
+- **Unit Test Komprehensif:** Menambahkan 4 test case di `tests/test_structural_guard.py` untuk menguji ekstraksi swing, konfluensi Golden Pocket, deteksi breach, dan structural hold di PositionManager.
+
+**File tersentuh**
+- `execution/structural_guard.py` — Engine baru kalkulasi Swing MTF & Fibonacci Confluence (Garis $X$).
+- `execution/__init__.py` — Ekspor `StructuralGuard`, `StructuralLevel`, `StructuralEvaluation`.
+- `execution/position_manager.py` — Integrasi Garis $X$ ke Phase 1–5 dan pelonggaran stagnant harvest.
+- `tests/test_structural_guard.py` — Unit test lengkap modul StructuralGuard.
+
+**Verifikasi**
+- `pytest tests/test_structural_guard.py tests/test_execution.py -v` → 29 passed in 0.20s.
+
+**Catatan / Next**
+- Deploy modul baru ke live server (`studo@100.114.150.48`) dan restart container bot.
+
+---
+
 ## 2026-10-21 — M1 Scalper Micro-Reversal Override di SPK Voting (`spk/voting.py`, `agents/orchestrator.py`)
+
 
 **Phase / Area:** SPK Core Voting & Orchestrator (`spk/voting.py`, `agents/orchestrator.py`)  
 **Status:** Done  
