@@ -304,7 +304,8 @@ class PositionManager:
                         current_price=price,
                         volume=pos.volume,
                         state=state_obj,
-                        max_risk_usd=effective_clamp_usd,
+                        held_seconds=held,
+                        max_risk_usd=max(12.0, round(effective_clamp_usd * 1.50, 2)),
                     )
                 except Exception as exc:  # noqa: BLE001
                     log.warning("StructuralGuard evaluation failed for ticket %s: %s", pos.ticket, exc)
@@ -332,9 +333,9 @@ class PositionManager:
                 actions.append("juggler_catastrophic_gap_cut")
                 return actions
 
-            # 3. Phase 1: Satpam Structural Invalidation or Early Adverse Alert
-            # If structural evaluation confirms Line X was breached, cut loss without waiting!
-            if structural_eval is not None and structural_eval.is_breached:
+            # 3. Phase 1: Satpam Structural Invalidation (Anti-Wick Shield Protected)
+            # Cut only on confirmed hard breach (not on minor wick probe < 45s)
+            if structural_eval is not None and structural_eval.is_hard_breached:
                 log.warning(
                     "SATPAM STRUCTURAL INVALIDATION CUT: Cutting ticket %s (%s %.2f, loss=%.2f) — %s",
                     pos.ticket,
@@ -347,6 +348,7 @@ class PositionManager:
                 self.untrack(pos.ticket)
                 actions.append("satpam_structural_cut")
                 return actions
+
 
             elif (
                 structural_eval is None

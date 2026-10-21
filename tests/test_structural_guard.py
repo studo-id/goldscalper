@@ -186,3 +186,56 @@ async def test_position_manager_holds_on_structural_guard():
     assert 12345 not in client.closed_tickets
 
 
+def test_anti_wick_panic_protects_minor_wick_spike():
+    """Verify ticket #4907471979 scenario: a 2-pip spike in first 15s is held, not cut!"""
+    guard = StructuralGuard(buffer_pips=8.0)
+
+    # Resistance swing at 4130.0
+    h1_prices = [
+        (4120.0, 4125.0, 4118.0, 4122.0),
+        (4122.0, 4130.0, 4120.0, 4128.0),
+        (4128.0, 4129.0, 4122.0, 4124.0),
+        (4124.0, 4126.0, 4120.0, 4123.0),
+        (4123.0, 4125.0, 4119.0, 4121.0),
+    ]
+
+    state = SharedState(
+        symbol="XAUUSD",
+        frames={"H1": _make_candles("H1", h1_prices)},
+    )
+
+    # SELL entered at 4128.50, Line X around 4130.80
+    # Price spikes to 4131.00 (overshoot 2 pips) at held=15s
+    eval_15s = guard.evaluate_invalidation(
+        side="SELL",
+        entry_price=4128.50,
+        current_price=4131.00,
+        volume=0.04,
+        state=state,
+        held_seconds=15.0,
+        max_risk_usd=12.0,
+    )
+
+    # Anti-wick shield protects the 15s spike!
+    assert eval_15s.is_breached is True
+    assert eval_15s.is_hard_breached is False
+    assert eval_15s.recommendation == "HOLD"
+    assert "ANTI-WICK SHIELD" in eval_15s.reasoning
+
+    # But at held=60s (candle closed past Line X), it confirms cut loss!
+    eval_60s = guard.evaluate_invalidation(
+        side="SELL",
+        entry_price=4128.50,
+        current_price=4131.00,
+        volume=0.04,
+        state=state,
+        held_seconds=60.0,
+        max_risk_usd=12.0,
+    )
+
+    assert eval_60s.is_hard_breached is True
+    assert eval_60s.recommendation == "CUT_LOSS"
+    assert "STRUCTURAL BREACH" in eval_60s.reasoning
+
+
+

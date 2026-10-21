@@ -35,7 +35,33 @@ Aturan singkat:
 
 ---
 
+## 2026-10-21 — SATPAM Fibonacci 78.6% Last-Bastion Anchor & Anti-Wick Panic Shield (`execution/structural_guard.py`, `execution/position_manager.py`)
+
+**Phase / Area:** Phase 14 / Execution Layer & Anti-Bleeding Matrix  
+**Status:** Done  
+
+**Yang dikerjakan**
+- **Audit Kasus Tiket #4907471979:** Mengidentifikasi bahwa cut loss 15 detik pada SELL 0.04 disebabkan Garis $X$ yang menempel terlalu dekat ke pucuk M15 (hanya 14 pips di atas entry) dan langsung cut saat terkena spike wick 2 pips.
+- **Fibonacci 78.6% & Swing Origin Priority:** Memperbarui [StructuralGuard](file:///c:/Users/STUDO/Documents/Project/APPS/trading/GoldScalper/execution/structural_guard.py) agar Garis $X$ mengunci di balik **Fibonacci 78.6% (Last Bastion Defense)** atau titik asal swing (origin), dengan syarat jarak minimal 12–15 pips dari entry agar tidak mepet.
+- **Pelebaran Buffer Perlindungan:** Menaikkan buffer default dari 4 pips ($0.40) menjadi **8 pips ($0.80)** untuk menyerap lonjakan spread dan manipulasi stop-hunt wick di Gold.
+- **Anti-Wick Panic Shield (`held < 45s`):** Menambahkan proteksi formasi candle. Spike jarum sementara $\le 10$ pips di luar Garis $X$ pada 45 detik pertama tidak langsung dipotong, melainkan ditahan (*HOLD*) menunggu konfirmasi penutupan candle/rejection. Cut loss seketika hanya terjadi jika terjadi *hard breakout* ($>10$ pips) atau terkonfirmasi setelah jendela formasi 45 detik.
+- **Unit Test Baru:** Menambahkan `test_anti_wick_panic_protects_minor_wick_spike` di `tests/test_structural_guard.py` yang memvalidasi skenario tiket #4907471979 (held 15s dengan spike 2 pips sukses di-HOLD dan tidak di-cut).
+
+**File tersentuh**
+- `execution/structural_guard.py` — Implementasi prioritas Fib 78.6%, buffer 8 pips, dan Anti-Wick Shield (`is_hard_breached`).
+- `execution/position_manager.py` — Integrasi `held_seconds` dan penjagaan `is_hard_breached` pada Phase 1.
+- `tests/test_structural_guard.py` — Unit test skenario Anti-Wick spike 15s.
+
+**Verifikasi**
+- `pytest tests/test_structural_guard.py tests/test_execution.py -v` → 30 passed in 0.21s.
+
+**Catatan / Next**
+- Deploy file ke server (`studo@100.114.150.48`), restart bot, dan monitor live execution.
+
+---
+
 ## 2026-10-21 — SATPAM Multi-TF Structural Guard & Fibonacci Dynamic SL Engine (`execution/structural_guard.py`, `execution/position_manager.py`)
+
 
 **Phase / Area:** Phase 14 / Execution Layer & Anti-Bleeding Matrix  
 **Status:** Done  
