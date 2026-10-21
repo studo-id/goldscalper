@@ -176,6 +176,23 @@ def action_for_score(
             weak_threshold = max(weak_threshold, thresholds.weak * proximity_strictest)
             strong_threshold = max(strong_threshold, thresholds.strong * 1.05)
 
+    # M1 Scalper Micro-Reversal Override:
+    # When micro-structure (M1 & M5) is unambiguously bullish and M1 Sniper or Ping-Pong triggers a buy,
+    # or unambiguously bearish and M1 Sniper or Ping-Pong triggers a sell,
+    # prioritize the fresh micro scalping direction over lagging macro net score!
+    m1_micro = portfolio_state.get("m1_micro_vote") if portfolio_state else None
+    m5_micro = portfolio_state.get("m5_micro_vote") if portfolio_state else None
+
+    if result is not None:
+        if m1_micro == 1 and m5_micro == 1 and (result.has_m1_sniper_buy or result.has_ping_pong_buy):
+            if result.buy_score >= weak_threshold:
+                strength = STRENGTH_STRONG if result.buy_score >= strong_threshold else STRENGTH_NORMAL
+                return ACTION_BUY, strength
+        elif m1_micro == -1 and m5_micro == -1 and (result.has_m1_sniper_sell or result.has_ping_pong_sell):
+            if result.sell_score >= weak_threshold:
+                strength = STRENGTH_STRONG if result.sell_score >= strong_threshold else STRENGTH_NORMAL
+                return ACTION_SELL, strength
+
     if a >= strong_threshold:
         strength = STRENGTH_STRONG
     elif a > weak_threshold:

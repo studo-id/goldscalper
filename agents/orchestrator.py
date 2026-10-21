@@ -109,6 +109,8 @@ class Orchestrator:
             "daily_pnl_pct": getattr(state, "daily_pnl_pct", 0.0),
             "remaining_target_usd": state.extra.get("remaining_target_usd") if state else None,
             "daily_profit_locked": getattr(state, "daily_profit_locked", False),
+            "m1_micro_vote": state.extra.get("m1_micro_vote") if state else None,
+            "m5_micro_vote": state.extra.get("m5_micro_vote") if state else None,
         } if state else None
         action, strength = action_for_score(
             result.score, self.thresholds, result=result, reload_side=reload_side, portfolio_state=portfolio_state

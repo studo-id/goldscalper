@@ -35,6 +35,33 @@ Aturan singkat:
 
 ---
 
+## 2026-10-21 — M1 Scalper Micro-Reversal Override di SPK Voting (`spk/voting.py`, `agents/orchestrator.py`)
+
+**Phase / Area:** SPK Core Voting & Orchestrator (`spk/voting.py`, `agents/orchestrator.py`)  
+**Status:** Done  
+
+**Yang dikerjakan**
+- **Akar Masalah Teridentifikasi (Reversal Lockout):** Saat harga memantul tajam di support (M1 Sniper menghasilkan *bullish engulfing* conf 0.75, Tech-Pattern *ping-pong buy* conf 0.80, Buy Score 3.545), indikator tren makro yang *lagging* (EMA slope, MACD, session trend) masih menyumbang skor SELL sehingga net score secara naif bernilai negatif (-1.195). Akibatnya:
+  1. SPK memaksakan mengajukan kandidat `ACTION_SELL` ke Veto Engine.
+  2. Veto Engine menolak SELL dengan `REJECTED_MICRO_EXHAUSTION` karena candle M1 & M5 sedang bullish.
+  3. SPK masuk ke status HOLD dan peluang buy pantulan M1 terbuang sia-sia.
+- **Solusi:**
+  1. Meneruskan `m1_micro_vote` dan `m5_micro_vote` dari `state.extra` ke `action_for_score()`.
+  2. Jika micro-structure (M1 & M5) kompak bullish (`m1_micro == 1 and m5_micro == 1`) dan `has_m1_sniper_buy` atau `has_ping_pong_buy` aktif dengan `buy_score >= weak_threshold`, SPK memprioritaskan arah **ACTION_BUY** (begitu pula sebaliknya untuk SELL).
+  3. Dengan ini, sinyal pantulan M1 yang segar tidak lagi tenggelam oleh indikator makro yang tertinggal.
+
+**File tersentuh**
+- `spk/voting.py` — Tambah logika *M1 Scalper Micro-Reversal Override* pada `action_for_score()`.
+- `agents/orchestrator.py` — Teruskan `m1_micro_vote` dan `m5_micro_vote` ke `portfolio_state`.
+
+**Verifikasi**
+- `uv run pytest tests/test_spk_voting.py tests/test_spk_veto.py tests/test_execution.py` → 69 passed in 0.23s.
+
+**Catatan / Next**
+- Push ke git, scp ke server, restart bot, dan jalankan `run_debug.sh`.
+
+---
+
 ## 2026-10-21 — Fix Deadlock Sideway Barrier saat Waterfall Crash / Multi-Division Breakout
 
 **Phase / Area:** SPK Veto Engine (`spk/veto.py`), Tests (`tests/test_spk_veto.py`)  
