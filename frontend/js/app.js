@@ -1,7 +1,7 @@
 // GoldScalper — app bootstrap: nav, router, topbar, symbol strip,
 // collapsible sidebar, session popover, and service worker.
 
-import { esc, fmtMoney, fmtPrice, hydrateIcons, icon, openModal, toast } from "./components.js?v=20261020_02";
+import { esc, fmtMoney, fmtPnl, fmtPrice, hydrateIcons, icon, openModal, toast } from "./components.js?v=20261021_01";
 import { COCKPIT_SUBTABS, VIEWS } from "./agents.js?v=20261020_03";
 import {
   api,
@@ -242,10 +242,9 @@ function updateTopbar() {
   }
 
   const eq = t?.equity != null ? t.equity : state.performance?.stats?.final_equity;
-  const curr = t?.currency || "USD";
+  const curr = t?.currency || (typeof window !== "undefined" && window.GS_CURRENCY) || "USC";
   if (eq != null) {
-    const formattedVal = Number(eq).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    set("m-equity", curr === "USC" ? `${formattedVal} USC` : `$${formattedVal}`);
+    set("m-equity", fmtMoney(eq, curr));
   } else {
     set("m-equity", "—");
   }
@@ -283,14 +282,19 @@ function buildDailyPerformanceTickerHtml(t) {
   const b = t?.bizdev;
 
   // Extract base numbers with resilient fallbacks from live telemetry
+  const cur = t?.currency || (typeof window !== "undefined" && window.GS_CURRENCY) || "USC";
+  const isUSC = cur === "USC";
   const targetPct = Number(j?.daily_target_pct ?? 35).toFixed(1);
-  const sodBalance = Number(j?.sod_balance || t?.balance || t?.equity || 8873.73);
-  const targetUsd = fmtMoney((sodBalance * Number(targetPct)) / 100).replace("$", "");
+  const sodBalance = Number(j?.sod_balance || t?.balance || t?.equity || 6400.0);
+  const targetValNum = (sodBalance * Number(targetPct)) / 100;
+  const targetUsd = Number(targetValNum).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   const realizedPnl = Number(j?.daily_realized_pnl ?? 0);
   const pnlClass = realizedPnl > 0 ? "perf-win" : realizedPnl < 0 ? "perf-loss" : "";
   const signBadge = realizedPnl > 0 ? "(+)" : realizedPnl < 0 ? "(-)" : "(±)";
-  const realizedPnlText = (realizedPnl >= 0 ? "+$" : "-$") + Math.abs(realizedPnl).toFixed(2);
+  const realizedPnlText = isUSC
+    ? (realizedPnl >= 0 ? `+${realizedPnl.toFixed(2)} USC` : `-${Math.abs(realizedPnl).toFixed(2)} USC`)
+    : (realizedPnl >= 0 ? `+$${realizedPnl.toFixed(2)}` : `-$${Math.abs(realizedPnl).toFixed(2)}`);
 
   const pnlPct = Number(j?.daily_pnl_pct ?? (sodBalance > 0 ? (realizedPnl / sodBalance) * 100 : 0));
   const pnlPctClass = pnlPct > 0 ? "perf-win" : pnlPct < 0 ? "perf-loss" : "";
@@ -298,14 +302,14 @@ function buildDailyPerformanceTickerHtml(t) {
 
   const progressPct = Number(j?.progress_pct ?? Math.max(0, (pnlPct / Number(targetPct)) * 100)).toFixed(1);
   const remUsd = Number(j?.remaining_usd ?? Math.max(0, (sodBalance * Number(targetPct)) / 100 - realizedPnl));
-  const remText = remUsd > 0 ? `Sisa: $${remUsd.toFixed(2)}` : "Tercapai";
+  const remText = remUsd > 0 ? `Sisa: ${isUSC ? `${remUsd.toFixed(2)} USC` : `$${remUsd.toFixed(2)}`}` : "Tercapai";
 
   let itemsHtml = "";
   if (j?.profit_locked || j?.status === "LOCKED") {
     itemsHtml = `
       <span class="ticker-perf-item"><b class="perf-accent">TARGET HARIAN +${targetPct}% LOCKED</b></span>
       <span class="ticker-bullet">·</span>
-      <span class="ticker-perf-item">Target Nilai: <b class="perf-accent">+$${targetUsd}</b></span>
+      <span class="ticker-perf-item">Target Nilai: <b class="perf-accent">${isUSC ? `+${targetUsd} USC` : `+$${targetUsd}`}</b></span>
       <span class="ticker-bullet">·</span>
       <span class="ticker-perf-item">Pencapaian (+/-): <b class="${pnlClass}">${signBadge} ${realizedPnlText} (<span class="${pnlPctClass}">${pnlPctText}</span>)</b></span>
       <span class="ticker-bullet">·</span>
@@ -313,7 +317,7 @@ function buildDailyPerformanceTickerHtml(t) {
     `;
   } else {
     itemsHtml = `
-      <span class="ticker-perf-item">Target: <b class="perf-accent">+${targetPct}% (+$${targetUsd})</b></span>
+      <span class="ticker-perf-item">Target: <b class="perf-accent">+${targetPct}% (${isUSC ? `+${targetUsd} USC` : `+$${targetUsd}`})</b></span>
       <span class="ticker-bullet">·</span>
       <span class="ticker-perf-item">Pencapaian (+/-): <b class="${pnlClass}">${signBadge} ${realizedPnlText} (<span class="${pnlPctClass}">${pnlPctText}</span>)</b></span>
       <span class="ticker-bullet">·</span>
@@ -326,7 +330,7 @@ function buildDailyPerformanceTickerHtml(t) {
     const rebate = Number(b.estimated_rebate_usd ?? 0).toFixed(2);
     itemsHtml += `
       <span class="ticker-bullet">·</span>
-      <span class="ticker-perf-item">Volume: <b>${lots} L</b> (Rebate <b class="perf-win">+$${rebate}</b>)</span>
+      <span class="ticker-perf-item">Volume: <b>${lots} L</b> (Rebate <b class="perf-win">${isUSC ? `+${rebate} USC` : `+$${rebate}`}</b>)</span>
     `;
   }
 
@@ -396,7 +400,7 @@ function updateCockpitTicker() {
     if (t?.positions?.length > 0) {
       const pos = t.positions[0];
       const pnl = Number(pos.pnl ?? pos.last_profit ?? pos.profit) || 0;
-      const pnlText = (pnl >= 0 ? "+$" : "-$") + Math.abs(pnl).toFixed(2);
+      const pnlText = fmtPnl(pnl);
       const dir = (pos.direction || pos.side || pos.type || "BUY").toUpperCase();
       const rawVol = Number(pos.volume ?? pos.size ?? pos.lots) || 0.01;
       const vol = rawVol.toFixed(2);
@@ -405,7 +409,7 @@ function updateCockpitTicker() {
 
       if (t.positions.length > 1) {
         const totalPnl = t.positions.reduce((acc, p) => acc + (Number(p.pnl ?? p.last_profit ?? p.profit) || 0), 0);
-        const totalPnlText = (totalPnl >= 0 ? "+$" : "-$") + Math.abs(totalPnl).toFixed(2);
+        const totalPnlText = fmtPnl(totalPnl);
         const totalLots = t.positions.reduce((acc, p) => acc + (Number(p.volume ?? p.size ?? p.lots) || 0), 0).toFixed(2);
         msg = `ACTIVE POSITIONS (${t.positions.length}): ${totalLots} Lots Total · Combined PnL ${totalPnlText} · Trailing Dynamic Guard Active`;
       } else {

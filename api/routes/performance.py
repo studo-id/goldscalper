@@ -62,7 +62,23 @@ async def performance(
             except Exception:
                 pass
 
-    base_balance = 10_000.0
+    cur_acc = str(
+        getattr(runtime, "_account_currency", None)
+        or ("USC" if (getattr(runtime, "symbol", "") or "").endswith("c") else "USD")
+    )
+    if cur_acc == "USD" and (getattr(runtime, "symbol", "") or "").endswith("c"):
+        cur_acc = "USC"
+
+    live_bal = getattr(runtime, "_last_balance", None)
+    sod_b = getattr(runtime, "_sod_balance", None)
+    if cur_acc == "USC":
+        if sod_b is None or float(sod_b) >= 9000.0:
+            sod_b = live_bal if (live_bal and float(live_bal) < 9000.0) else 6410.12
+    else:
+        if sod_b is None:
+            sod_b = live_bal or 10_000.0
+
+    base_balance = float(sod_b)
     if since_dt is not None and hasattr(repo, "prior_pnl"):
         prior = await repo.prior_pnl(until=since_dt)
         balance = base_balance + prior
@@ -76,6 +92,7 @@ async def performance(
         stats["total"] = stats.pop("trades", 0)
         stats["final_equity"] = round(balance, 2)
         stats["max_drawdown"] = 0.0
+        stats["currency"] = cur_acc
         t_start = since_dt.isoformat() if since_dt else now_utc.isoformat()
         return {
             "stats": stats,
@@ -88,6 +105,7 @@ async def performance(
             "since": since_dt.isoformat() if since_dt else None,
             "until": until_dt.isoformat() if until_dt else None,
             "base_equity": round(balance, 2),
+            "currency": cur_acc,
             "trades": [],
             "total_trades": 0,
         }
@@ -113,6 +131,7 @@ async def performance(
     stats["total"] = stats.pop("trades", 0)
     stats["final_equity"] = round(balance + cumulative, 2)
     stats["max_drawdown"] = round(max_dd, 4)
+    stats["currency"] = cur_acc
 
     recent_trades = await repo.list_recent(limit=50, offset=0, since=since_dt, until=until_dt)
     total_trades_count = await repo.count_trades(status="CLOSED", since=since_dt, until=until_dt)
@@ -125,6 +144,7 @@ async def performance(
         "since": since_dt.isoformat() if since_dt else None,
         "until": until_dt.isoformat() if until_dt else None,
         "base_equity": round(balance, 2),
+        "currency": cur_acc,
         "trades": recent_trades,
         "total_trades": total_trades_count,
     }

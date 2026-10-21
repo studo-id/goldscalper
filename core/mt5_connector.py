@@ -564,6 +564,7 @@ class NativeMT5Client:
             "profit": float(getattr(acc, "profit", 0.0)),
             "margin_free": float(getattr(acc, "margin_free", 0.0)),
             "server": str(getattr(acc, "server", "")),
+            "currency": str(getattr(acc, "currency", "USD")),
         }
 
 

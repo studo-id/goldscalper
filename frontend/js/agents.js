@@ -315,11 +315,11 @@ export const cockpit = {
             <div class="consensus-stats" style="grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 0;">
               <div class="cs-item" style="padding: 6px 8px;">
                 <span class="k" style="font-size: 10px;">Bleed Clamp</span>
-                <span class="v mono neg" id="j-clamp-val" style="font-size: 12.5px;" title="Max force cutloss per trade">-$${juggler?.hard_clamp_usd || "7.00"}</span>
+                <span class="v mono neg" id="j-clamp-val" style="font-size: 12.5px;" title="Max force cutloss per trade">${(window.GS_CURRENCY || state.currency) === "USC" ? `-${juggler?.hard_clamp_usd || "7.00"} USC` : `-$${juggler?.hard_clamp_usd || "7.00"}`}</span>
               </div>
               <div class="cs-item" style="padding: 6px 8px;">
                 <span class="k" style="font-size: 10px;">Est. Rebate</span>
-                <span class="v mono pos" id="b-rebate-val" style="font-size: 12.5px;" title="Cashback from volume">+$${bizdev?.estimated_rebate_usd != null ? Number(bizdev.estimated_rebate_usd).toFixed(2) : "0.00"}</span>
+                <span class="v mono pos" id="b-rebate-val" style="font-size: 12.5px;" title="Cashback from volume">${(window.GS_CURRENCY || state.currency) === "USC" ? `+${bizdev?.estimated_rebate_usd != null ? Number(bizdev.estimated_rebate_usd).toFixed(2) : "0.00"} USC` : `+$${bizdev?.estimated_rebate_usd != null ? Number(bizdev.estimated_rebate_usd).toFixed(2) : "0.00"}`}</span>
               </div>
               <div class="cs-item" style="padding: 6px 8px;">
                 <span class="k" style="font-size: 10px;">Volume</span>
@@ -714,7 +714,13 @@ export const cockpit = {
 
       const rebVal = root.querySelector("#b-rebate-val");
       if (rebVal && bdev?.estimated_rebate_usd != null) {
-        rebVal.textContent = "+$" + Number(bdev.estimated_rebate_usd).toFixed(2);
+        rebVal.textContent = fmtPnl(bdev.estimated_rebate_usd);
+      }
+
+      const clampVal = root.querySelector("#j-clamp-val");
+      if (clampVal && jug?.hard_clamp_usd != null) {
+        const isUSC = (window.GS_CURRENCY || state.currency) === "USC";
+        clampVal.textContent = isUSC ? `-${jug.hard_clamp_usd} USC` : `-$${jug.hard_clamp_usd}`;
       }
 
       const lotsVal = root.querySelector("#b-lots-val");
@@ -778,7 +784,7 @@ function positionsBody() {
     const pnlColorClass = totalPnl >= 0 ? "pos" : "neg";
 
     basketHeader = `
-      <div class="basket-summary-bar" style="display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.03); border:1px solid var(--line); border-radius:var(--radius-sm); padding:10px 14px; margin-bottom:12px; font-size:12px;">
+      <div class="basket-summary-bar" style="display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.03); border:none; border-radius:var(--radius-sm); padding:10px 14px; margin-bottom:12px; font-size:12px;">
         <div style="display:flex; gap:16px; align-items:center; flex-wrap:wrap;">
           <div><span class="dim">Active Mode:</span> <strong id="basket-layers" class="mono" style="color:var(--text);">${modeTitle}</strong></div>
           <div><span class="dim">Total Vol:</span> <strong id="basket-vol" class="mono" style="color:var(--text);">${totalVol.toFixed(2)} Lots</strong></div>
@@ -1503,9 +1509,15 @@ export const portfolio = {
         if (until) query.until = `${until}T23:59:59+07:00`;
       }
       const r = await api("/api/performance", { query });
+      if (r.currency) {
+        state.currency = r.currency;
+        if (typeof window !== "undefined") {
+          window.GS_CURRENCY = r.currency;
+        }
+      }
       this._tradesTotal = r.total_trades ?? (r.trades || []).length;
       this._tradesPageData = (r.trades || []).slice(0, this._pageSize);
-      setState({ performance: r });
+      setState({ performance: r, currency: r.currency || state.currency });
       if (root) this.render(root);
     } catch (e) {
       handleErr(e, "Failed to load portfolio data");
@@ -1709,7 +1721,7 @@ export const portfolio = {
             </div>
             <div style="margin-top: 8px; font-size: 11px; display: flex; align-items: center; justify-content: space-between; background: var(--s2); padding: 4px 8px; border-radius: 4px;">
               <span class="dim">Juggler Clamp Limit</span>
-              <span class="mono neg" style="font-weight: 600;">-$7.00 Max</span>
+              <span class="mono neg" style="font-weight: 600;">-${(window.GS_CURRENCY || state.currency) === "USC" ? "7.00 USC" : "$7.00"} Max</span>
             </div>
           </div>
 
@@ -1729,11 +1741,11 @@ export const portfolio = {
             <div class="card-title" style="margin-bottom: 10px;">BizDev Economics</div>
             <div style="display: flex; gap: 20px;">
               <div><span class="dim" style="font-size: 11px;">Total Volume</span><div class="mono" style="font-size: 16px; font-weight: 700;">${fmtNum(s.total_lots ?? (total * 0.05), 2)} L</div></div>
-              <div><span class="dim" style="font-size: 11px;">Est. Rebate</span><div class="mono pos" style="font-size: 16px; font-weight: 700;">+${fmtMoney((s.total_lots ?? (total * 0.05)) * 6.0)}</div></div>
+              <div><span class="dim" style="font-size: 11px;">Est. Rebate</span><div class="mono pos" style="font-size: 16px; font-weight: 700;">${fmtPnl((s.total_lots ?? (total * 0.05)) * 6.0)}</div></div>
             </div>
             <div style="margin-top: 8px; font-size: 11px; display: flex; align-items: center; justify-content: space-between; background: var(--s2); padding: 4px 8px; border-radius: 4px;">
               <span class="dim">IB Cashback Rate</span>
-              <span class="mono pos" style="font-weight: 600;">$6.00 / lot</span>
+              <span class="mono pos" style="font-weight: 600;">${(window.GS_CURRENCY || state.currency) === "USC" ? "6.00 USC" : "$6.00"} / lot</span>
             </div>
           </div>
         </div>

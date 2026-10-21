@@ -60,6 +60,7 @@ async def trades(
         "offset": offset,
         "limit": limit,
         "has_more": has_more,
+        "currency": getattr(runtime, "_account_currency", "USC" if getattr(runtime, "symbol", "").endswith("c") else "USD"),
         "source": "db",
     }
 

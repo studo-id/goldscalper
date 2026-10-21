@@ -4,6 +4,7 @@ const TOKEN_KEY = "gs_token";
 
 export const state = {
   token: localStorage.getItem(TOKEN_KEY) || "",
+  currency: localStorage.getItem("gs_currency") || "USC",
   connected: false,
   telemetry: null,
   decision: null,
@@ -14,6 +15,10 @@ export const state = {
   performance: null,
   lessons: null,
 };
+if (typeof window !== "undefined") {
+  window.GS_STATE = state;
+  window.GS_CURRENCY = state.currency;
+}
 
 const listeners = new Set();
 export function subscribe(fn) {
@@ -90,6 +95,13 @@ function setConnected(v) {
 
 function ingest(d) {
   const patch = { telemetry: d };
+  if (d.currency) {
+    patch.currency = d.currency;
+    if (typeof window !== "undefined") {
+      window.GS_CURRENCY = d.currency;
+    }
+    localStorage.setItem("gs_currency", d.currency);
+  }
   // telemetry carries a light decision; merge so the full record (votes/tradable)
   // fetched from /api/spk/latest is preserved field-by-field.
   if (d.decision) patch.decision = Object.assign({}, state.decision, d.decision);

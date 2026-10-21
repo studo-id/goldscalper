@@ -126,7 +126,7 @@ class Runtime:
         self.orders_placed = 0
         self._last_equity: float = 10000.0
         self._last_balance: float = 10000.0
-        self._account_currency: str = "USD"
+        self._account_currency: str = "USC" if (self.settings.mt5_symbol.endswith("c") or self.settings.mt5_symbol.endswith("m")) else "USD"
         self._sod_is_default: bool = True
 
         # --- Scalper Radar Watchdog Trackers ---
@@ -939,6 +939,9 @@ class Runtime:
             "algo_trading": mt5_trade_allowed and not self.paused,
             "mt5_trade_allowed": mt5_trade_allowed,
             "symbol": self.symbol,
+            "currency": getattr(self, "_account_currency", "USC" if self.symbol.endswith("c") else "USD"),
+            "equity": self._last_equity,
+            "balance": self._last_balance,
             "agents": self.registry.size,
             "divisions": {d: len(a) for d, a in self.registry.divisions().items()},
             "orders_placed": self.orders_placed,

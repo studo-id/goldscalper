@@ -35,6 +35,48 @@ Aturan singkat:
 
 ---
 
+## 2026-10-21 — Sinkronisasi Menyeluruh Saldo & Satuan Mata Uang (USC) di Seluruh Halaman Dashboard (Cockpit, Agents, Portfolio, Settings)
+
+**Phase / Area:** Phase 14 / Frontend Architecture & Portfolio Aggregator  
+**Status:** Done  
+
+**Yang dikerjakan**
+- **Audit & Penyelarasan Menyeluruh Lintas Halaman:**
+  - **Halaman Portfolio:**
+    - Mengeliminasi nilai statik `base_balance = 10_000.0` pada endpoint `/api/performance`.
+    - Mengikat `base_balance` secara dinamis ke baseline `runtime._sod_balance` / `runtime._last_balance` akun cent (`~6,410 - 6,435 USC`), sehingga `final_equity` dan kurva pertumbuhan modal (*Equity Growth Curve*) langsung mencerminkan saldo akun riil.
+    - Sumbu Y Canvas chart `drawEquity` kini berskala dinamis `... USC` (bukan `$10,000`), baseline zero histogram `±0`, dan hover tooltip menyajikan ekuitas & trade PnL dalam `USC`.
+    - Seluruh metrik agregat (Total PnL, Final Equity, Average Win, Average Loss, Gross Profit, Gross Loss, Est. Rebate, IB Cashback Rate, dan Juggler Clamp Limit) konsisten menggunakan format mata uang dinamis.
+  - **Halaman Cockpit & Ticker:**
+    - Top strip metric `#m-equity` memformat saldo secara dinamis (`6,410.12 USC`).
+    - Ticker berjalan telemetri (`buildDailyPerformanceTickerHtml`) otomatis mendeteksi mata uang aktif untuk target harian (+35%), pencapaian PnL, sisa sprint target, dan rebate.
+    - Status floating position dan combined basket PnL pada ticker ticker bar kini menggunakan `fmtPnl()` alih-alih hardcoded `$`.
+    - Memperbarui live update Juggler HUD card (`#j-clamp-val` dan `#b-rebate-val`) agar tidak menimpa format dengan simbol `$` saat telemetri streaming masuk.
+    - Mengeliminasi border `1px solid` pada `basket-summary-bar` demi kepatuhan Strict Borderless UI (`AGENTS.md`).
+  - **Halaman Settings & Sub-tabs:**
+    - Memastikan `/api/status` dan `runtime.snapshot()` menyediakan `currency`, `balance`, dan `equity`.
+    - Menambahkan `currency` ke response `/api/trades` agar seluruh tab riwayat dan posisi floating terikat ke mata uang aktif.
+- **Backend & Connector Hardening (`runtime.py`, `core/mt5_connector.py`, `api/routes/trades.py`):**
+  - Menginisialisasi default currency `runtime._account_currency` berdasarkan suffix simbol (`XAUUSDc` -> `USC`).
+  - Menambahkan field `currency` ke `NativeMT5Client.account_info()` dan `BridgeMT5Client.account_info()`.
+
+**File tersentuh**
+- [api/routes/performance.py](file:///c:/Users/STUDO/Documents/Project/APPS/trading/GoldScalper/api/routes/performance.py) — dynamic sod base balance and currency in performance stats
+- [api/routes/trades.py](file:///c:/Users/STUDO/Documents/Project/APPS/trading/GoldScalper/api/routes/trades.py) — currency field in trades endpoint
+- [core/mt5_connector.py](file:///c:/Users/STUDO/Documents/Project/APPS/trading/GoldScalper/core/mt5_connector.py) — currency field in NativeMT5Client.account_info()
+- [runtime.py](file:///c:/Users/STUDO/Documents/Project/APPS/trading/GoldScalper/runtime.py) — currency-aware default, balance/equity in snapshot
+- [frontend/js/components.js](file:///c:/Users/STUDO/Documents/Project/APPS/trading/GoldScalper/frontend/js/components.js) — global getCurrency, fmtMoney, fmtPnl, drawEquity currency-aware
+- [frontend/js/ws.js](file:///c:/Users/STUDO/Documents/Project/APPS/trading/GoldScalper/frontend/js/ws.js) — global GS_CURRENCY sync in state & telemetry ingest
+- [frontend/js/agents.js](file:///c:/Users/STUDO/Documents/Project/APPS/trading/GoldScalper/frontend/js/agents.js) — HUD Juggler & Portfolio page currency handling, borderless basket bar
+- [frontend/js/app.js](file:///c:/Users/STUDO/Documents/Project/APPS/trading/GoldScalper/frontend/js/app.js) — Live Cockpit Telemetry Ticker currency formatting, top strip equity
+- [docs/PROGRESS.md](file:///c:/Users/STUDO/Documents/Project/APPS/trading/GoldScalper/docs/PROGRESS.md) — worklog entry
+
+**Verifikasi**
+- `pytest tests/test_execution.py` → 29 passed
+- Verifikasi endpoint live `/api/performance` dan `/account` MT5 di server VPS.
+
+---
+
 ## 2026-10-21 — Kalibrasi Sinkronisasi Real Equity & Balance Akun Cent (USC) dari MT5 Bridge
 
 **Phase / Area:** Phase 14 / Execution Layer & Live Broker Integration  

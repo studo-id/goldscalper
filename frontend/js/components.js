@@ -100,17 +100,37 @@ export function fmtPrice(v, dp = 2) {
     maximumFractionDigits: dp,
   });
 }
-export function fmtMoney(v) {
+export function getCurrency() {
+  if (typeof window !== "undefined") {
+    if (window.GS_CURRENCY) return window.GS_CURRENCY;
+    if (window.GS_STATE?.currency) return window.GS_STATE.currency;
+    if (window.GS_STATE?.telemetry?.currency) return window.GS_STATE.telemetry.currency;
+  }
+  return "USC";
+}
+
+export function fmtMoney(v, curr = null) {
   if (v == null || Number.isNaN(v)) return "—";
   const num = Number(v);
   const sign = num < 0 ? "-" : "";
-  return `${sign}$${Math.abs(num).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const cur = curr || getCurrency();
+  const formatted = Math.abs(num).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (cur === "USC") {
+    return `${sign}${formatted} USC`;
+  }
+  return `${sign}$${formatted}`;
 }
-export function fmtPnl(v) {
+
+export function fmtPnl(v, curr = null) {
   if (v == null || Number.isNaN(v)) return "—";
   const num = Number(v);
   const sign = num > 0 ? "+" : num < 0 ? "-" : "";
-  return `${sign}$${Math.abs(num).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const cur = curr || getCurrency();
+  const formatted = Math.abs(num).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (cur === "USC") {
+    return `${sign}${formatted} USC`;
+  }
+  return `${sign}$${formatted}`;
 }
 export function fmtPct(v, dp = 0) {
   if (v == null || Number.isNaN(v)) return "—";
@@ -470,8 +490,12 @@ export function drawEquity(canvas, points, { color = COL.accent, showEquity = tr
         ctx.lineTo(w - padR, yy);
         ctx.stroke();
 
+        const cur = getCurrency();
+        const isUSC = cur === "USC";
         ctx.fillStyle = "rgba(139, 147, 161, 0.75)";
-        const yText = span < 10 ? `$${yVal.toFixed(2)}` : `$${Math.round(yVal).toLocaleString("en-US")}`;
+        const yText = isUSC
+          ? `${Math.round(yVal).toLocaleString("en-US")} USC`
+          : (span < 10 ? `$${yVal.toFixed(2)}` : `$${Math.round(yVal).toLocaleString("en-US")}`);
         ctx.fillText(yText, padL - 8, yy);
       }
     }
@@ -499,11 +523,13 @@ export function drawEquity(canvas, points, { color = COL.accent, showEquity = tr
       ctx.stroke();
 
       // PnL Axis side labels & extra grid lines if in full PnL mode
+      const cur = getCurrency();
+      const isUSC = cur === "USC";
       ctx.font = "9px 'JetBrains Mono', ui-monospace, monospace";
       ctx.fillStyle = "rgba(139, 147, 161, 0.55)";
       ctx.textAlign = "right";
       ctx.textBaseline = "middle";
-      ctx.fillText("±$0", padL - 8, zeroY);
+      ctx.fillText(isUSC ? "±0" : "±$0", padL - 8, zeroY);
       ctx.fillText(`+${Math.round(maxAbsPnl)}`, padL - 8, histoTop + 2);
       ctx.fillText(`-${Math.round(maxAbsPnl)}`, padL - 8, histoBottom - 1);
 
@@ -718,7 +744,13 @@ export function drawEquity(canvas, points, { color = COL.accent, showEquity = tr
     if (tooltip) {
       const timeStr = typeof pt === "object" && pt !== null ? formatChartTime(pt.t) : "";
       const pnl = typeof pt === "object" && pt !== null ? pt.pnl : null;
-      const pnlText = pnl != null ? (pnl >= 0 ? `+$${pnl.toFixed(2)}` : `-$${Math.abs(pnl).toFixed(2)}`) : null;
+      const cur = getCurrency();
+      const isUSC = cur === "USC";
+      const pnlText = pnl != null
+        ? (pnl >= 0
+            ? (isUSC ? `+${pnl.toFixed(2)} USC` : `+$${pnl.toFixed(2)}`)
+            : (isUSC ? `-${Math.abs(pnl).toFixed(2)} USC` : `-$${Math.abs(pnl).toFixed(2)}`))
+        : null;
       const pnlClass = pnl != null ? (pnl >= 0 ? "pos" : "neg") : "";
 
       let lines = `
@@ -729,7 +761,10 @@ export function drawEquity(canvas, points, { color = COL.accent, showEquity = tr
       `;
 
       if (showEquity) {
-        lines += `<div class="equity-tooltip-equity mono">$${val.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>`;
+        const eqStr = isUSC
+          ? `${val.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USC`
+          : `$${val.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        lines += `<div class="equity-tooltip-equity mono">${eqStr}</div>`;
       }
 
       if (showPnl && pnlText) {
