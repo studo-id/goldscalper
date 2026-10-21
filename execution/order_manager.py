@@ -611,6 +611,28 @@ class OrderManager:
                         f"Blocked SELL near support floor (${cluster_support:.2f}, dist={dist_to_support:.2f}, buffer={sr_buffer:.2f}) without confirmed M5 breakdown close",
                     )
 
+                # --- TABAYUN & RETEST PROTOCOL: Anti-Chasing Climax Breakdown ---
+                # Even if M5 candle confirmed a breakdown below support, we MUST NOT chase the breakdown
+                # at an overextended low (e.g. selling at the bottom of a 150-pip climax run).
+                # Safe entry requires price to be near the retest zone of the broken support floor (within 12 pips).
+                breakdown_extension = cluster_support - entry
+                if breakdown_extension > 1.20:
+                    return (
+                        True,
+                        f"Blocked SELL chasing extended breakdown (${entry:.2f} is {breakdown_extension:.2f} USD below support ${cluster_support:.2f}). Tabayun: awaiting pullback/retest near broken floor.",
+                    )
+
+                # Climax Run Check: If last 3 M5 candles are all red and dropped >= 8.00 USD without a pullback
+                if len(m5_bars) >= 4:
+                    last_3_bars = m5_bars[-3:]
+                    all_red_m5 = all(_val(b, "close") < _val(b, "open") for b in last_3_bars)
+                    m5_cum_drop = _val(last_3_bars[0], "open") - entry
+                    if all_red_m5 and m5_cum_drop >= 8.00:
+                        return (
+                            True,
+                            f"Blocked SELL into climax exhaustion (${m5_cum_drop:.2f} USD drop across 3 M5 bars). Tabayun: awaiting retracement before trend continuation.",
+                        )
+
         elif action == ACTION_BUY:
             # Entering within dynamic buffer of resistance ceiling or probing above it without confirmed M5 close
             if entry >= (cluster_resistance - sr_buffer):
@@ -630,6 +652,28 @@ class OrderManager:
                         True,
                         f"Blocked BUY near resistance ceiling (${cluster_resistance:.2f}, dist={dist_to_res:.2f}, buffer={sr_buffer:.2f}) without confirmed M5 breakout close",
                     )
+
+                # --- TABAYUN & RETEST PROTOCOL: Anti-Chasing Climax Breakout ---
+                # Even if M5 candle confirmed a breakout above resistance, we MUST NOT chase the breakout
+                # at an overextended peak (e.g. buying at the top of a 150-pip climax rally).
+                # Safe entry requires price to be near the retest zone of the broken resistance ceiling (within 12 pips).
+                breakout_extension = entry - cluster_resistance
+                if breakout_extension > 1.20:
+                    return (
+                        True,
+                        f"Blocked BUY chasing extended breakout (${entry:.2f} is {breakout_extension:.2f} USD above resistance ${cluster_resistance:.2f}). Tabayun: awaiting pullback/retest near broken ceiling.",
+                    )
+
+                # Climax Run Check: If last 3 M5 candles are all green and rallied >= 8.00 USD without a pullback
+                if len(m5_bars) >= 4:
+                    last_3_bars = m5_bars[-3:]
+                    all_green_m5 = all(_val(b, "close") > _val(b, "open") for b in last_3_bars)
+                    m5_cum_rally = entry - _val(last_3_bars[0], "open")
+                    if all_green_m5 and m5_cum_rally >= 8.00:
+                        return (
+                            True,
+                            f"Blocked BUY into climax exhaustion (${m5_cum_rally:.2f} USD rally across 3 M5 bars). Tabayun: awaiting retracement before trend continuation.",
+                        )
 
         return False, ""
 

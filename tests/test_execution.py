@@ -667,9 +667,11 @@ async def test_order_manager_sr_boundary_blocks_without_confirmed_breakout() -> 
     assert blocked_above is True
     assert "Blocked BUY probing above resistance ceiling" in reason_above
 
-    # 3. Confirmed M5 close breakout > 4141.93 + 0.50 (e.g. 4142.50) -> ALLOWED
-    st.frames["M5"][-1]["close"] = 4142.60
-    blocked_breakout, _ = om._check_dynamic_sr_boundary(ACTION_BUY, 4143.00, st)
+    # 3. Confirmed M5 close breakout > 4141.93 + 0.50 (e.g. 4142.50) with base -> ALLOWED
+    st.frames["M5"][-3] = {"open": 4139.0, "high": 4140.0, "low": 4137.0, "close": 4137.5}  # red base/pullback bar
+    st.frames["M5"][-2] = {"open": 4137.5, "high": 4141.0, "low": 4137.0, "close": 4140.5}
+    st.frames["M5"][-1] = {"open": 4140.5, "high": 4143.0, "low": 4140.0, "close": 4142.60}
+    blocked_breakout, _ = om._check_dynamic_sr_boundary(ACTION_BUY, 4142.00, st)
     assert blocked_breakout is False
 
     # 4. Ticket #4908409177 scenario: Entry at 4137.03 (dist=4.90) in DEFENSE mode (buffer expands to $5.08)
@@ -677,6 +679,29 @@ async def test_order_manager_sr_boundary_blocks_without_confirmed_breakout() -> 
     st.daily_pnl_pct = -1.0
     blocked_defense, reason_defense = om._check_dynamic_sr_boundary(ACTION_BUY, 4137.03, st)
     assert blocked_defense is True
-    assert "buffer=5.08" in reason_defense
+    assert "Blocked BUY near resistance ceiling" in reason_defense
+
+    # 5. Ticket #4908580511 scenario: Confirmed M5 breakdown at 4124.19, but entry at 4122.40 (1.79 USD extended) -> TABAYUN BLOCKS!
+    st_down = SharedState(
+        symbol="XAUUSDm",
+        extra={
+            "market_regime": "TRENDING_BEAR",
+            "sr_resistance": 4135.00,
+            "sr_support": 4124.19,
+            "struct_event": "LH_LL",
+        },
+        frames={
+            "M5": [
+                {"open": 4136.0, "high": 4138.0, "low": 4134.0, "close": 4135.0},
+                {"open": 4135.0, "high": 4137.0, "low": 4132.0, "close": 4133.9},
+                {"open": 4134.0, "high": 4134.7, "low": 4128.9, "close": 4129.4},
+                {"open": 4129.3, "high": 4129.4, "low": 4125.8, "close": 4126.8},
+                {"open": 4124.8, "high": 4125.6, "low": 4121.4, "close": 4122.48},  # confirmed close below 4124.19
+            ]
+        },
+    )
+    blocked_climax, reason_climax = om._check_dynamic_sr_boundary(ACTION_SELL, 4122.395, st_down)
+    assert blocked_climax is True
+    assert "Tabayun" in reason_climax
 
 

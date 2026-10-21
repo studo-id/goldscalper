@@ -35,6 +35,33 @@ Aturan singkat:
 
 ---
 
+## 2026-10-21 — Protokol Tabayun & Anti-Climax Retest Breakdown/Breakout (`execution/order_manager.py`)
+
+**Phase / Area:** Phase 14 / Execution Layer & Institutional Price Action  
+**Status:** Done  
+
+**Yang dikerjakan**
+- **Audit Kasus Tiket #4908580511 (SELL @ 4122.40):**
+  1. Filter S/R sebelumnya berhasil memblokir SELL 5 kali selama candle M5 14:05 sedang menguji support 4124.19.
+  2. Namun tepat saat candle M5 tersebut ditutup pada 14:10:00 di 4122.48, gerbang langsung meloloskan SELL di detik 14:10:01 pada harga dasar terendah (4122.40), tepat di ujung lilin merah ke-5 yang sudah jatuh -160 pips (*selling exhaustion climax*).
+  3. Terjadi jebakan likuiditas (*liquidity spring*): pasar langsung memantul tajam +70 pips (*Bullish Engulfing*) ke 4129, menyebabkan posisi terkena SL.
+- **Implementasi Protokol "Bersabar dan Tabayun" (Retest & Anti-Climax):**
+  - **Larangan Mengejar Breakdown/Breakout Terlalu Jauh (*Anti-Chasing Extended Move*):** Meskipun candle M5 telah resmi konfirmasi menembus level S/R, bot DILARANG mengejar harga jika jarak entry sudah melebihi 1.20 USD (12 pips) dari level S/R yang ditembus. Order wajib bersabar menunggu *pullback / retest* kembali ke area retest level yang ditembus.
+  - **Proteksi Climax Exhaustion (3+ Lilin Satu Arah):** Jika 3 candle M5 terakhir bergerak satu arah tanpa henti dengan pergerakan kumulatif $\ge 8.00$ USD (80 pips), bot memblokir order di ujung tren untuk mencegah aksi jual di dasar jurang (*selling the bottom*) atau beli di puncak gunung (*buying the top*).
+- **Unit Tests:** Memperbarui suite pengujian pada `tests/test_execution.py` yang memvalidasi skenario tiket #4908580511 diblokir oleh protokol Tabayun.
+
+**File tersentuh**
+- `execution/order_manager.py` — Integrasi Tabayun retest distance limit (1.20 USD) dan 3-bar climax run detector.
+- `tests/test_execution.py` — Unit test verifikasi pemblokiran extended breakdown chase.
+
+**Verifikasi**
+- `pytest tests/test_spk_veto.py tests/test_spk_voting.py tests/test_execution.py tests/test_structural_guard.py tests/test_market_regime.py` → 87 passed in 0.41s.
+
+**Catatan / Next**
+- Deploy file ke server live dan restart `gs-bot`.
+
+---
+
 ## 2026-10-21 — Dynamic S/R Boundary Buffer & Dynamic HTF Divergence Veto (`execution/order_manager.py`, `spk/veto.py`)
 
 **Phase / Area:** Phase 14 / Execution Layer & Anti-Trap Shield  
