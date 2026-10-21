@@ -35,6 +35,38 @@ Aturan singkat:
 
 ---
 
+## 2026-10-21 — Fix Disparitas Timeframe M1/M5 & Blokade Trend Continuation di Atap Resisten / Lantai Support
+
+**Phase / Area:** Technical Division & Consensus Risk Guard (`agents/divisions/technical/agents.py`, `tests/test_technical_division.py`)  
+**Status:** Done & Verified (24 passed, live deployed)
+
+**Yang dikerjakan:**
+1. **Investigasi Root-Cause Tiket 4905427123 (BUY 0.04 @ 4,120.28):**
+   - User mempertanyakan screenshot M1: bot melakukan BUY di harga 4,120.28 (posisi 89.4% dari range sideways Tokyo $4,114 – $4,121).
+   - Pengamatan user **100% benar**: entri tersebut membeli pucuk resisten sideways sebelum breakout.
+   - Ditemukan **disparitas logika antar-timeframe**:
+     - Timeframe M5 membaca slope EMA9 positif (+0.67) pasca spike jam 01:30, mendeklarasikan `REGIME_TRENDING_BULL`.
+     - Agen `Tech-SupportResistance` mengeksekusi blok `# 4. Active Trend Continuation in Mid Channel` terlebih dahulu tanpa memeriksa posisi relatif harga (`pos_pct`).
+     - Alhasil, agen salah mengira harga berada di mid-channel dan mengeluarkan `VOTE_BUY` dengan `veto=VETO_SELL`, membypass aturan atap resisten (`pos_pct >= 0.70 -> VETO_BUY`).
+     - Padahal pada detik yang sama, agen M1 (`TF-M1-Sniper`), M15, M30, dan H4 semuanya kompak vote `SELL`.
+2. **Implementasi Hard Guard di `SupportResistanceAgent`:**
+   - Menyinkronkan `close` pada evaluasi Micro-SR langsung ke `b_m1.last_close` (harga live M1 riil).
+   - Menambahkan pengecekan batas struktural pada blok Trend Continuation:
+     - JIKA arah BUY namun `pos_pct >= 0.70` atau `close >= m1_resistance - buf`: Terbitkan `TREND_BLOCKED_AT_RESISTANCE` (`VOTE_NEUTRAL, veto=VETO_BUY`) sampai harga benar-benar terkonfirmasi Breakout.
+     - JIKA arah SELL namun `pos_pct <= 0.30` atau `close <= m1_support + buf`: Terbitkan `TREND_BLOCKED_AT_SUPPORT` (`VOTE_NEUTRAL, veto=VETO_SELL`) sampai harga benar-benar terkonfirmasi Breakdown.
+3. **Validasi Rescue Layer 2 & Penegakan Defense Lot Cap:**
+   - Terverifikasi tiket Layer 2 (4905429868) terpicu di 4,118.39 (jarak ~1.89 USD) dengan lot tepat 0.02 (mematuhi defense cap hasil kalibrasi sebelumnya), dan cutloss tertib saat support jebol, terhindar dari martil tak terkontrol.
+
+**File tersentuh:**
+- `agents/divisions/technical/agents.py` — Penguncian M1 close live dan blokade trend continuation di atap/lantai S/R.
+- `tests/test_technical_division.py` — Penambahan unit test `test_support_resistance_trend_blocked_at_resistance` dan `test_support_resistance_trend_blocked_at_support`.
+
+**Verifikasi:**
+- `uv run pytest tests/test_technical_division.py` → 24 passed in 0.18s.
+- `git diff` clean & strongly typed.
+
+---
+
 ## 2026-10-21 — Eliminasi False Trend Expansion & Penegakan Proteksi Anti-Sell di Lantai Support Sideways
 
 **Phase / Area:** Market Regime & Strategy Layer (`core/market_regime.py`, `agents/divisions/technical/agents.py`, `execution/order_manager.py`, `spk/veto.py`, `runtime.py`, `tests/test_market_regime.py`)  

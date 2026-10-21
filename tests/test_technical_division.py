@@ -190,6 +190,43 @@ async def test_support_resistance_m1_mid_dead_zone_veto_all() -> None:
     assert sig.metadata.get("m1_pos_pct") == 0.5
 
 
+async def test_support_resistance_trend_blocked_at_resistance() -> None:
+    # M5 frames trending up realistically (slope positive, closes increasing gently)
+    m5_rows = [(2360 + i * 0.3, 2362 + i * 0.3, 2359 + i * 0.3, 2361 + i * 0.3) for i in range(25)]
+    # M1 frames range 2360 to 2370. Current price 2369.2 is at 92% (pressing resistance ceiling)
+    # Give M1 mixed wicks so RSI is moderate (~55-60)
+    m1_rows = [(2365, 2370.0, 2360.0, 2366.0) for _ in range(15)] + [
+        (2366, 2368, 2364, 2367), (2367, 2369, 2365, 2368), (2368, 2370, 2367, 2368.5), (2368.5, 2370.0, 2368.0, 2369.2)
+    ]
+    
+    st = state(frames={"M5": _frame("M5", m5_rows), "M1": _frame("M1", m1_rows)})
+    sig = await SupportResistance().evaluate(st)
+    
+    # Must activate VETO_BUY even though M5 is trending up!
+    assert sig.veto == VETO_BUY
+    assert sig.vote == VOTE_NEUTRAL
+    assert "veto BUY until breakout" in sig.reasoning
+    assert sig.metadata.get("micro_sr_event") == "TREND_BLOCKED_AT_RESISTANCE"
+
+
+async def test_support_resistance_trend_blocked_at_support() -> None:
+    # M5 frames trending down realistically (slope negative, closes decreasing gently)
+    m5_rows = [(2358 - i * 0.3, 2359 - i * 0.3, 2356 - i * 0.3, 2357 - i * 0.3) for i in range(25)]
+    # M1 frames range 2350 to 2360. Current price 2350.8 is at 8% (pressing support floor)
+    m1_rows = [(2355, 2360.0, 2350.0, 2354.0) for _ in range(15)] + [
+        (2354, 2356, 2352, 2353), (2353, 2355, 2351, 2352), (2352, 2353, 2350, 2351.5), (2351.5, 2352.0, 2350.0, 2350.8)
+    ]
+    
+    st = state(frames={"M5": _frame("M5", m5_rows), "M1": _frame("M1", m1_rows)})
+    sig = await SupportResistance().evaluate(st)
+    
+    # Must activate VETO_SELL even though M5 is trending down!
+    assert sig.veto == VETO_SELL
+    assert sig.vote == VOTE_NEUTRAL
+    assert "veto SELL until breakdown" in sig.reasoning
+    assert sig.metadata.get("micro_sr_event") == "TREND_BLOCKED_AT_SUPPORT"
+
+
 async def test_pattern_bullish_engulfing() -> None:
     rows = [(2350, 2351, 2349, 2350), (2355, 2356, 2350, 2351), (2350, 2358, 2349, 2357)]
     sig = await Pattern().evaluate(state(frames={"M5": _frame("M5", rows)}))

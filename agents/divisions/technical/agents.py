@@ -204,6 +204,8 @@ class SupportResistance(TechnicalAgent):
         if self.micro_enabled:
             b_m1 = self.bars(state, "M1")
             if b_m1.n >= 10:
+                close = b_m1.last_close
+                meta["close"] = round(close, 2)
                 m1_win = slice(-min(b_m1.n, self.micro_lookback), None)
                 m1_support = min(b_m1.lows[m1_win])
                 m1_resistance = max(b_m1.highs[m1_win])
@@ -320,6 +322,15 @@ class SupportResistance(TechnicalAgent):
                 # 4. Active Trend Continuation in Mid Channel (When Trending, Dead-Zone is SHUT OFF!)
                 if regime.is_trending and regime.allow_trend_continuation:
                     if regime.direction == "SELL":
+                        if pos_pct <= 0.30 or close <= (m1_support + buf):
+                            meta["micro_sr_event"] = "TREND_BLOCKED_AT_SUPPORT"
+                            return self.signal(
+                                VOTE_NEUTRAL,
+                                0.80,
+                                f"bearish trend expansion blocked at M1 support floor (${close:.2f} <= ${m1_support + buf:.2f}, {pos_pct*100:.1f}%), veto SELL until breakdown",
+                                meta,
+                                veto=VETO_SELL,
+                            )
                         meta["micro_sr_event"] = "TREND_CONTINUATION_SELL"
                         return self.signal(
                             VOTE_SELL,
@@ -329,6 +340,15 @@ class SupportResistance(TechnicalAgent):
                             veto=VETO_BUY,  # Disallow buying against the wave
                         )
                     if regime.direction == "BUY":
+                        if pos_pct >= 0.70 or close >= (m1_resistance - buf):
+                            meta["micro_sr_event"] = "TREND_BLOCKED_AT_RESISTANCE"
+                            return self.signal(
+                                VOTE_NEUTRAL,
+                                0.80,
+                                f"bullish trend expansion blocked at M1 resistance ceiling (${close:.2f} >= ${m1_resistance - buf:.2f}, {pos_pct*100:.1f}%), veto BUY until breakout",
+                                meta,
+                                veto=VETO_BUY,
+                            )
                         meta["micro_sr_event"] = "TREND_CONTINUATION_BUY"
                         return self.signal(
                             VOTE_BUY,
