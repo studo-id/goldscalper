@@ -35,6 +35,27 @@ Aturan singkat:
 
 ---
 
+## 2026-10-21 — Implementasi Proteksi Counter-Trend Defense (H1+D1 Macro Trend Gating)
+
+**Phase / Area:** SPK Veto Engine, Settings, Orchestrator (`spk/veto.py`, `config/settings.py`, `agents/orchestrator.py`, `tests/test_spk_veto.py`, `docs/QUANT_FINENG_BIZDEV_SPEC.md`)
+**Status:** Done & Deployed
+
+**Yang dikerjakan:**
+1. **Analisa Komparasi Performa Harian (21 Okt vs 20 Okt WIB):**
+   - **Evaluasi Hasil:** Net PnL trading hari ini membaik drastis menjadi -$48.24 (atau -$22.14 net setelah rebate BizDev), Drawdown ditekan ke 1.35% (vs 9.09% kemarin), dan Profit Factor melonjak ke 0.76 (vs 0.55).
+   - **Peluang Optimalisasi:** Posisi SELL (76 trade) menghasilkan laba bersih +$13.08 (dengan rebate), namun 15 posisi BUY counter-trend mengalami kerugian -$39.72 akibat mencoba menangkap pisau jatuh saat tren makro HTF (H1 + D1) sedang berstatus Strong Bearish.
+2. **Implementasi Hard Gatekeeper `COUNTER_TREND_DEFENSE`:**
+   - Menambahkan field konfigurasi `counter_trend_defense_block_enabled = True` pada `config/settings.py` dan `VetoParams`.
+   - Pada [spk/veto.py](file:///c:/Users/STUDO/Documents/Project/APPS/trading/GoldScalper/spk/veto.py):
+     - Jika portfolio dalam mode **DEFENSE** (`daily_pnl_pct < 0`):
+       - Jika `TF-H1-Regime` dan `TF-D1-Macro` keduanya berstatus tren **BEARISH**, posisi `BUY` **DIBLOKIR MUTLAK** (`hard=True`, reason: `COUNTER_TREND_DEFENSE: Strictly prohibited from opening counter-trend BUY against confirmed H1/D1 bearish trend in Defense Mode`).
+       - Jika keduanya berstatus tren **BULLISH**, posisi `SELL` **DIBLOKIR MUTLAK** (`hard=True`).
+     - Pada mode Balanced/Growth (`daily_pnl_pct >= 0`): Posisi counter-trend dikenakan penalti confidence berat `-0.40` sehingga hanya setup pembalikan berkekuatan A+ yang diizinkan lewat.
+3. **Unit Testing:**
+   - Menambahkan test case `test_counter_trend_defense_blocks_buy_during_h1_d1_downtrend()` di `tests/test_spk_veto.py`. Seluruh 41 unit test passed bersih.
+
+---
+
 ## 2026-10-20 — Proteksi Anti-Sideway Trap (Pencegahan Sell di Lembah & Buy di Pucuk Saat Range-Bound)
 
 **Phase / Area:** SPK Veto Engine, Structure & Regime Governance (`spk/veto.py`, `tests/test_spk_veto.py`, `docs/PROGRESS.md`)

@@ -188,6 +188,7 @@ $$\text{Friction Ratio} = \frac{\text{Total Friction Cost}}{\text{Gross Profit G
 | **SPK Floor Defense** | `min_confidence_floor_defense` | **0.25 (s/d 0.30)** | Dinamis terhadap kedalaman drawdown; pnl_drag dibatasi maks -0.05 (anti double-penalty). |
 | **Finish Line Floor** | `finish_line_confidence_floor` | **0.40** | Mengetatkan ambang SPK saat sisa target <= $20 guna mengunci kemenangan sprint. |
 | **S/R Barrier Demotion** | `sr_barrier_confluence_min` | **5 confirming voters** | M1 micro S/R didemosi ke soft penalty (-0.12 s/d -0.18) saat konsensus kuat; tetap hard barrier saat Finish Line. |
+| **Counter-Trend Block** | `counter_trend_defense_block_enabled` | **True** | Blokir mutlak order counter-trend yang melawan tren terkonfirmasi H1+D1 saat mode DEFENSE. |
 
 ---
 

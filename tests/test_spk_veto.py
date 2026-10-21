@@ -366,5 +366,42 @@ def test_anti_sideway_trap_blocks_sell_at_support_floor() -> None:
     assert "SUPPORT FLOOR" in (result.reason or "")
 
 
+def test_counter_trend_defense_blocks_buy_during_h1_d1_downtrend() -> None:
+    # During confirmed H1 and D1 downtrend in Defense mode, counter-trend BUY is blocked
+    h1_sig = AgentSignal(
+        agent_id="TF-H1-Regime",
+        division="timeframe",
+        vote=-1,
+        confidence=0.80,
+        veto=VETO_BUY,
+        reasoning="H1 regime TRENDING bias BEARISH (VETO_BUY)",
+    )
+    d1_sig = AgentSignal(
+        agent_id="TF-D1-Macro",
+        division="timeframe",
+        vote=-1,
+        confidence=0.80,
+        veto=VETO_BUY,
+        reasoning="D1 macro BEARISH zone DISCOUNT (VETO_BUY)",
+    )
+    # A few micro M1 agents trying to buy a bounce
+    m1_buy = [
+        AgentSignal(agent_id=f"m1_buy_{i}", division="technical", vote=1, confidence=0.6)
+        for i in range(3)
+    ]
+    signals = [h1_sig, d1_sig] + m1_buy
+    state = SharedState(daily_pnl_pct=-3.0)
+
+    # 1. Counter-trend BUY is strictly blocked by COUNTER_TREND_DEFENSE
+    result_buy = evaluate(signals, state, ACTION_BUY)
+    assert result_buy.hard is True
+    assert "COUNTER_TREND_DEFENSE" in (result_buy.reason or "")
+
+    # 2. But SELL with the trend is completely allowed!
+    result_sell = evaluate(signals, state, ACTION_SELL)
+    assert result_sell.hard is False
+
+
+
 
 

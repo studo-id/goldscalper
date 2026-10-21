@@ -66,6 +66,7 @@ class Orchestrator:
         self.veto_params = veto_params or VetoParams(
             max_spread_points=self.settings.max_spread_points,
             d1_macro_hard_veto_enabled=getattr(self.settings, "d1_macro_hard_veto_enabled", False),
+            counter_trend_defense_block_enabled=getattr(self.settings, "counter_trend_defense_block_enabled", True),
         )
         self.risk_gate = risk_gate
         self.broadcast = broadcast

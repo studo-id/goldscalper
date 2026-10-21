@@ -35,6 +35,7 @@ class VetoParams:
     min_confidence_floor: float = 0.0
     d1_macro_hard_veto_enabled: bool = False
     d1_macro_soft_penalty: float = 0.15
+    counter_trend_defense_block_enabled: bool = True
 
 
 @dataclass
@@ -71,6 +72,58 @@ def evaluate(
         getattr(sig, "metadata", {}).get("ping_pong_side") == direction
         for sig in signals
     )
+
+    # --- Juggler & BizDev: HTF Counter-Trend Defense Protection ---
+    # When portfolio is in DEFENSE mode (daily_pnl_pct < 0), counter-trend trading
+    # against confirmed Higher Timeframe (H1 + D1) trends is strictly forbidden!
+    # Eliminates catching falling knives in macro downtrends or shorting rockets in macro uptrends.
+    daily_pnl_pct = float(getattr(state, "daily_pnl_pct", 0.0) or 0.0) if state else 0.0
+    h1_sig = next((s for s in signals if s.agent_id == "TF-H1-Regime"), None)
+    d1_sig = next((s for s in signals if s.agent_id == "TF-D1-Macro"), None)
+
+    h1_bear = False
+    if h1_sig is not None:
+        h1_bear = (h1_sig.vote < 0 or h1_sig.veto == VETO_BUY or "BEARISH" in (h1_sig.reasoning or "").upper())
+    elif state and state.flag("h1_vote") is not None and state.flag("h1_vote") < 0:
+        h1_bear = True
+
+    d1_bear = False
+    if d1_sig is not None:
+        d1_bear = (d1_sig.vote < 0 or d1_sig.veto == VETO_BUY or "BEARISH" in (d1_sig.reasoning or "").upper())
+
+    macro_bearish = h1_bear and d1_bear
+
+    h1_bull = False
+    if h1_sig is not None:
+        h1_bull = (h1_sig.vote > 0 or h1_sig.veto == VETO_SELL or "BULLISH" in (h1_sig.reasoning or "").upper())
+    elif state and state.flag("h1_vote") is not None and state.flag("h1_vote") > 0:
+        h1_bull = True
+
+    d1_bull = False
+    if d1_sig is not None:
+        d1_bull = (d1_sig.vote > 0 or d1_sig.veto == VETO_SELL or "BULLISH" in (d1_sig.reasoning or "").upper())
+
+    macro_bullish = h1_bull and d1_bull
+
+    if p.counter_trend_defense_block_enabled and daily_pnl_pct < 0.0:
+        if direction == ACTION_BUY and macro_bearish:
+            return VetoResult(
+                hard=True,
+                reason="COUNTER_TREND_DEFENSE: Strictly prohibited from opening counter-trend BUY against confirmed H1/D1 bearish trend in Defense Mode",
+                notes=["COUNTER_TREND:H1_D1_BEARISH:veto_buy"],
+            )
+        if direction == ACTION_SELL and macro_bullish:
+            return VetoResult(
+                hard=True,
+                reason="COUNTER_TREND_DEFENSE: Strictly prohibited from opening counter-trend SELL against confirmed H1/D1 bullish trend in Defense Mode",
+                notes=["COUNTER_TREND:H1_D1_BULLISH:veto_sell"],
+            )
+    elif macro_bearish and direction == ACTION_BUY:
+        result.confidence_delta -= 0.40
+        result.notes.append("Counter-trend BUY penalized against confirmed H1/D1 bearish macro trend (-0.40)")
+    elif macro_bullish and direction == ACTION_SELL:
+        result.confidence_delta -= 0.40
+        result.notes.append("Counter-trend SELL penalized against confirmed H1/D1 bullish macro trend (-0.40)")
 
     for sig in signals:
         if sig.veto in (blocking_flag, VETO_ALL):

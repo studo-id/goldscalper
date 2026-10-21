@@ -94,6 +94,7 @@ class Settings(BaseSettings):
     # --- Dynamic SPK Confidence Floor (Portfolio & Target Seek Juggler) ---
     min_confidence_floor_normal: float = 0.25   # Baseline confidence floor in normal/growth mode
     min_confidence_floor_defense: float = 0.25  # Base confidence floor in defense mode (dynamically scales with drawdown)
+    counter_trend_defense_block_enabled: bool = True  # Block counter-trend trades against confirmed H1/D1 in Defense Mode
 
     # --- Institutional SMC & Session Disciplines (Top-Down, OB, News & Session Clocks) ---
     news_blackout_pre_minutes: int = 30       # 30 mins before high-impact news release
