@@ -59,9 +59,11 @@ GoldScalper dirancang bukan sebagai bot grid/martingale buta yang menumpuk posis
 ### 2.2 Mode B: Defensive Rescue Mode (Smart Reversal Recovery)
 - **Kondisi:** Posisi awal mengalami **Floating Loss** akibat *liquidity sweep*, false breakout, atau koreksi tajam.
 - **Prinsip Utama:** **DILARANG** melakukan averaging buta (bukan martingale tanpa batas). Entry penyelamatan **hanya dipicu jika 8 divisi mendeteksi titik konfluensi pembalikan arah baru**.
-- **Jarak Minimum Juggler (Spreading Heuristic):**
-  - **Normal / Growth Mode:** Minimum jarak antar layer adalah **$\ge 20$ pips ($2.00 USD)**.
-  - **Defense Mode (`daily_pnl_pct < 0%`):** Minimum jarak antar layer diperlebar ke **$\ge 30–35$ pips ($3.00–$3.50 USD)** untuk mencegah *clustering* berdekatan saat pasar trending tajam melawan posisi.
+- **Jarak Minimum Juggler (Spreading Heuristic & Dynamic Clamp Harmonization):**
+  - **Normal / Growth Mode:** Minimum jarak antar layer adalah **$\ge 15$ pips ($1.50 USD)**.
+  - **Defense Mode (`daily_pnl_pct < 0%`):** Dikalibrasi ke **$\ge 18$ pips ($1.80 USD)** (mengeliminasi paradoks 30 pips yang sebelumnya terbentur Dynamic Clamp -$7.00 di 17.5 pips pada lot 0.04). Dengan jarak 18 pips, Layer 2 dapat mengeksekusi penyelamatan di zona support/resistance retest sebelum clamp memotong sepihak, sekaligus didukung **M5 Pattern Reversal Hold** (toleransi clamp dilonggarkan ke $9.80 / 1.40x hingga 90 detik saat Satpam M5 mendukung).
+  - **Lot Sizing Defense Cap:** Pada Defense Mode (`daily_pnl_pct < 0%`), volume Layer 2 dibatasi ketat maksimal **0.02 lot**, menjaga total eksposur keranjang tetap $\le 0.06$ lot demi mematuhi pagu risiko Juggler (0.02–0.04 lot ceiling).
+  - **Smart Momentum Velocity Knife Guard:** Menggantikan deteksi buta 3 candle merah beruntun dengan evaluasi momentum/velocity (`adverse_span >= $3.50` / 35 pips atau single flash bar $\ge \$2.00$). Gentle drift pullbacks (< 35 pips) di area support kini diizinkan untuk eksekusi Layer 2.
 - **Finish Line Lockdown:**
   - Ketika sisa target harian tinggal sedikit (**`remaining_target_usd \le $20`**), atau drawdown mendalam (**`daily_pnl_pct \le -4.0%`**), sistem otomatis mengunci mode **Single Position Only** (seluruh multi-entry dan rescue layering diblokir total untuk mengamankan modal/target).
 - **Maksimal Rescue Layers:** Maksimal 2 layer penyelamatan per sisi (dengan batas absolut `max_open_positions = 10`).

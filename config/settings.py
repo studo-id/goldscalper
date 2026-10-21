@@ -175,7 +175,7 @@ class Settings(BaseSettings):
     multi_entry_enabled: bool = True
     rescue_mode_enabled: bool = True
     rescue_max_layers: int = 2              # Strict Cap: Max 2 positions per side (1 Initial + 1 Rescue)
-    rescue_min_distance_pips: float = 20.0  # 20 pips = 2.00 USD on Gold
+    rescue_min_distance_pips: float = 15.0  # 15 pips = 1.50 USD on Gold
     rescue_score_threshold: float = 1.60
     rescue_multiplier: float = 1.0          # Flat lot: no dangerous Martingale lot ballooning
     basket_tp_buffer_pips: float = 3.0      # Fast recovery buffer above avg BE price

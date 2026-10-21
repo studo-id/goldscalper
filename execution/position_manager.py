@@ -61,6 +61,11 @@ def evaluate_multi_tf_watchdogs(pos_direction: str, context: dict[str, Any] | No
     if not context:
         return default_res
 
+    if "watchdogs" in context and isinstance(context["watchdogs"], dict):
+        res = dict(default_res)
+        res.update(context["watchdogs"])
+        return res
+
     decision = context.get("decision")
     if not decision or not getattr(decision, "votes", None):
         return default_res
@@ -362,21 +367,25 @@ class PositionManager:
                 if is_in_rescue_basket:
                     pass  # Collective basket management takes precedence
                 else:
-                    # When HTF (H4/H1/M30/M15) strongly SUPPORTS the trade, a 15-30 pip pullback is healthy.
-                    # Allow up to 35 pips ($28.00 on 0.08 lot) of pullback room before declaring HTF exhausted.
+                    # When HTF (H4/H1/M30/M15) or Satpam M5 supports the trade, grant reversal breathing room:
                     htf_reversal_clamp = max(16.0, round(effective_clamp_usd * 2.25, 2), round(pos.volume * 3.50 * 100.0, 2))
-                    if is_htf_supporting and current_loss > -htf_reversal_clamp:
-                        # Allow trend continuation / reversal room while HTF structure is healthy
+                    is_m5_supporting = watchdogs.get("m5", {}).get("verdict") in ("SUPPORTING", "HTF_SUPPORTING")
+                    # M5 Pattern Reversal Hold: allow up to 90s for M5 candle to complete reversal
+                    can_reversal_hold = is_htf_supporting or (is_m5_supporting and held < 90)
+                    reversal_clamp = htf_reversal_clamp if is_htf_supporting else round(effective_clamp_usd * 1.40, 2)
+
+                    if can_reversal_hold and current_loss > -reversal_clamp:
+                        # Allow trend continuation / reversal room while structure is healthy
                         pass
                     else:
-                        clamp_reason = "HTF_EXHAUSTED" if is_htf_supporting else htf_bias.get("verdict", "NEUTRAL")
+                        clamp_reason = "HTF_EXHAUSTED" if is_htf_supporting else ("M5_EXHAUSTED" if is_m5_supporting else htf_bias.get("verdict", "NEUTRAL"))
                         log.warning(
                             "JUGGLER DYNAMIC CLAMP: Cutting ticket %s (%s %.2f, loss=%.2f <= -$%.2f [HTF=%s (%s), avg_win $%.2f])",
                             pos.ticket,
                             pos.side,
                             pos.volume,
                             current_loss,
-                            effective_clamp_usd if not is_htf_supporting else htf_reversal_clamp,
+                            effective_clamp_usd if not can_reversal_hold else reversal_clamp,
                             htf_bias.get("verdict"),
                             clamp_reason,
                             live_avg_win,

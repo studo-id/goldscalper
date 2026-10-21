@@ -35,6 +35,43 @@ Aturan singkat:
 
 ---
 
+## 2026-10-21 — Kalibrasi Matematis Rescue Layer 2, Smart Knife Velocity Guard, & Defense Lot Cap
+
+**Phase / Area:** Execution Layer (`execution/order_manager.py`, `execution/position_manager.py`, `config/settings.py`, `tests/test_execution.py`, `docs/MULTI_ENTRY_RESCUE_SPEC.md`)  
+**Status:** Done & Verified (58/58 unit tests passed)
+
+**Yang dikerjakan:**
+1. **Penyelesaian Paradoks Jarak 30 Pips vs Dynamic Clamp:**
+   - Evaluasi matematis membuktikan bahwa pada trade scalper 0.04 lot ($1\text{ pip} = \$0.40$), Dynamic Clamp -$7.00 terpicu saat floating drawdown menyentuh 17.5 pips.
+   - Ketentuan jarak minimum 30 pips ($12.00 loss) di Mode DEFENSE sebelumnya menyebabkan Layer 2 mustahil dieksekusi karena posisi Layer 1 sudah terpotong clamp lebih dulu di detik 61.
+   - Dikalibrasi jarak minimum Rescue Layer 2:
+     - Mode DEFENSE (`daily_pnl_pct < 0`): **18 pips ($1.80 USD)** (pas di zona retest support/resistance sebelum clamp terpicu).
+     - Mode NORMAL / GROWTH: **15 pips ($1.50 USD)** (diperbarui di `config/settings.py` `rescue_min_distance_pips = 15.0`).
+2. **Harmonisasi M5 Pattern Reversal Hold pada Dynamic Clamp:**
+   - Menambahkan toleransi pembalikan pola candle M5 di `PositionManager`: Jika Satpam M5 berstatus `SUPPORTING`, clamp dilonggarkan ke $9.80 (1.40x clamp) hingga 90 detik untuk memberi ruang penyelesaian pola candle M5 dan pemulihan Layer 2 tanpa panik wick.
+3. **Smart Momentum Velocity Knife Guard (Menggantikan Deteksi Buta 3 Candle):**
+   - Menghapus aturan kaku "3 candle merah beruntun = blokir rescue". Gentle drift pullback (< 35 pips) yang menguji level support kini diizinkan untuk eksekusi Layer 2.
+   - Guard sekarang hanya memblokir *true aggressive momentum drops/spikes*: jika bentang pergerakan merugikan $\ge 35$ pips ($3.50 USD) dalam 3 candle terakhir, atau terdapat candle kilat (*flash crash bar*) $\ge 20$ pips ($2.00 USD).
+4. **Lot Sizing Conservation Cap di Mode DEFENSE:**
+   - Membatasi volume Layer 2 maksimal **0.02 lot** saat `daily_pnl_pct < 0` (bukan flat 0.04 lot), sehingga total eksposur keranjang terjaga ketat $\le 0.06$ lot, selaras dengan pagu risiko Juggler.
+5. **Unit Tests & Verifikasi:**
+   - `test_rescue_defense_mode_spacing_and_lot_cap`: Memvalidasi penolakan jarak < 18 pips, penerimaan jarak $\ge 18$ pips, dan cap volume Layer 2 menjadi 0.02 lot.
+   - `test_falling_knife_smart_momentum`: Memvalidasi gentle drift (15 pips) diizinkan, sedangkan waterfall agresif (40 pips) diblokir.
+   - `test_position_manager_m5_reversal_hold`: Memvalidasi penundaan clamp saat M5 `SUPPORTING` dan pemotongan tegas saat M5 `OPPOSING`.
+
+**File tersentuh:**
+- `execution/order_manager.py` — Dynamic spacing 18 pips (DEFENSE) / 15 pips (NORMAL), Smart Velocity Knife Guard, DEFENSE lot cap 0.02 lot.
+- `execution/position_manager.py` — M5 Pattern Reversal Hold (clamp 1.40x s/d 90 detik saat M5 SUPPORTING).
+- `config/settings.py` — Default `rescue_min_distance_pips = 15.0`.
+- `tests/test_execution.py` — 3 unit tests baru (all 58 passed).
+- `docs/MULTI_ENTRY_RESCUE_SPEC.md` — Pembaruan Section 2.2.
+
+**Verifikasi:**
+- `pytest tests/test_execution.py tests/test_spk_veto.py` → 58 passed in 0.30s.
+- `pytest tests/test_execution.py tests/test_spk_veto.py tests/test_spk_voting.py tests/test_risk_division.py tests/test_technical_division.py tests/test_wave_engine.py` → 123 passed in 0.42s.
+
+---
+
 ## 2026-10-21 — Resolusi Tabrakan Logika: Enforce Rescue Basket Unity Shield & Collective Exit Exclusivity
 
 **Phase / Area:** Execution Layer (`execution/position_manager.py`, `runtime.py`, `tests/test_execution.py`, `docs/MULTI_ENTRY_RESCUE_SPEC.md`, `docs/PROGRESS.md`)  

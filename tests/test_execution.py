@@ -483,6 +483,93 @@ async def test_dynamic_data_driven_sr_boundary_gate() -> None:
     assert res_breakout.ticket is not None
 
 
+async def test_rescue_defense_mode_spacing_and_lot_cap() -> None:
+    client = MockMT5Client()
+    om = OrderManager(client=client, settings=settings)
+    # Defense mode: daily_pnl_pct = -2.5%
+    state = SharedState(symbol="XAUUSDm", daily_pnl_pct=-2.5)
+    
+    # 1. Open initial trade at 2350.0 with 0.04 lot
+    first = await om.execute(_decision(entry=2350.0, size=0.04), state=state)
+    assert first is not None and first.ok
+    assert first.size == 0.04
+
+    # 2. Attempt rescue at 2348.8 (dist=1.20 USD = 12 pips) -> Rejected (too close, min 18 pips / $1.80)
+    second_too_close = await om.execute(_decision(entry=2348.8, size=0.04), state=state)
+    assert second_too_close is not None and not second_too_close.ok
+    assert "distance too close" in (second_too_close.reason or "")
+
+    # 3. Attempt rescue at 2348.1 (dist=1.90 USD = 19 pips >= 18 pips) -> Approved!
+    # And volume MUST be capped at 0.02 lot in DEFENSE mode!
+    second_ok = await om.execute(_decision(entry=2348.1, size=0.04), state=state)
+    assert second_ok is not None and second_ok.ok
+    assert second_ok.size == 0.02  # Defense lot conservation cap!
+
+
+async def test_falling_knife_smart_momentum() -> None:
+    client = MockMT5Client()
+    om = OrderManager(client=client, settings=settings)
+
+    # Initial BUY at 2350.0
+    await om.execute(_decision(entry=2350.0, size=0.04))
+
+    # Case A: 3 gentle red drift candles (total drop only 1.50 USD / 15 pips) -> ALLOWED
+    gentle_reds = [
+        {"open": 2348.5, "high": 2348.6, "low": 2347.9, "close": 2348.0},
+        {"open": 2348.0, "high": 2348.1, "low": 2347.4, "close": 2347.5},
+        {"open": 2347.5, "high": 2347.6, "low": 2346.9, "close": 2347.0},
+    ]
+    state_gentle = SharedState(symbol="XAUUSDm", frames={"M1": gentle_reds})
+    res_gentle = await om.execute(_decision(entry=2347.0, size=0.04), state=state_gentle)
+    assert res_gentle is not None and res_gentle.ok
+
+    # Case B: 3 aggressive waterfall red candles (total drop 4.0 USD / 40 pips) -> BLOCKED
+    client2 = MockMT5Client()
+    om2 = OrderManager(client=client2, settings=settings)
+    await om2.execute(_decision(entry=2350.0, size=0.04))
+    waterfall_reds = [
+        {"open": 2350.0, "high": 2350.0, "low": 2348.5, "close": 2348.5},
+        {"open": 2348.5, "high": 2348.5, "low": 2347.0, "close": 2347.0},
+        {"open": 2347.0, "high": 2347.0, "low": 2346.0, "close": 2346.0},
+    ]
+    state_waterfall = SharedState(symbol="XAUUSDm", frames={"M1": waterfall_reds})
+    res_waterfall = await om2.execute(_decision(entry=2346.0, size=0.04), state=state_waterfall)
+    assert res_waterfall is not None and not res_waterfall.ok
+    assert "falling knife guard" in (res_waterfall.reason or "")
+
+
+async def test_position_manager_m5_reversal_hold() -> None:
+    client = MockMT5Client()
+    pm = PositionManager(client=client, settings=settings)
+    now = utcnow()
+    pos = await _open_position(client, sl=2335.0, volume=0.04)
+    pm.track(pos)
+    # Held 75 seconds (past 60s noise period) with -$8.20 loss (normally cuts at -$7.00)
+    pm._states[pos.ticket].opened_at = now - timedelta(seconds=75)
+    pos.profit = -8.20
+
+    # 1. When Satpam M5 is SUPPORTING, Juggler grants reversal room (held < 90s)
+    actions_hold = await pm.manage(
+        pos,
+        price=2348.0,
+        now=now,
+        context={"watchdogs": {"m5": {"verdict": "SUPPORTING"}, "htf": {"verdict": "NEUTRAL"}}},
+    )
+    assert "juggler_dynamic_clamp" not in actions_hold
+    assert len(await client.positions()) == 1
+
+    # 2. But if Satpam M5 is OPPOSING, it is immediately cut at -$8.20
+    pos.profit = -8.20  # Re-assert loss because client.positions() above mutated pos.profit
+    actions_cut = await pm.manage(
+        pos,
+        price=2348.0,
+        now=now,
+        context={"watchdogs": {"m5": {"verdict": "OPPOSING"}, "htf": {"verdict": "NEUTRAL"}}},
+    )
+    assert "juggler_dynamic_clamp" in actions_cut
+    assert len(await client.positions()) == 0
+
+
 
 
 

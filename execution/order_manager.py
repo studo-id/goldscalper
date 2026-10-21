@@ -205,12 +205,15 @@ class OrderManager:
                     return ExecutionResult(ok=False, reason="rescue max layers reached")
 
                 min_distance_usd = (self.settings.rescue_min_distance_pips or 15.0) * 0.10
-                # If state is provided, enforce dynamic Juggler spacing based on portfolio health
+                # Enforce dynamic Juggler spacing calibrated to lot size & Dynamic Clamp thresholds:
                 if state is not None:
                     if daily_pnl_pct < 0:
-                        min_distance_usd = max(min_distance_usd, 3.00)  # 30 pips in drawdown defense
+                        # In DEFENSE mode: spacing 18 pips ($1.80) aligns with 0.04 lot clamp zone,
+                        # allowing Layer 2 to step in before clamp cut while preventing clustering < 18 pips
+                        min_distance_usd = 1.80
                     else:
-                        min_distance_usd = max(min_distance_usd, 2.00)  # 20 pips in normal/growth
+                        # In NORMAL/GROWTH mode: spacing 15 pips ($1.50)
+                        min_distance_usd = max(1.50, min_distance_usd)
                 else:
                     # When state is None (unit tests), check stalled flag
                     any_stalled = any(
@@ -263,33 +266,44 @@ class OrderManager:
                             return ExecutionResult(ok=False, reason="sr barrier: blocked sell rescue at support bounce")
 
                         # Anti-Falling Knife / Rocket Spike Guard on Rescue Layers:
-                        # Prevent averaging down into 3+ consecutive M1 candles moving against the trade
+                        # Prevent averaging down into high-velocity adverse moves (waterfalls > 35 pips or flash bar > 20 pips)
                         m1_bars = state.frames.get("M1") if state.frames else None
                         if m1_bars and len(m1_bars) >= 3:
+                            last_3 = m1_bars[-3:]
+                            def _c_open(b: Any) -> float:
+                                return float(getattr(b, "open", b.get("open", 0.0) if isinstance(b, dict) else 0.0))
+                            def _c_close(b: Any) -> float:
+                                return float(getattr(b, "close", b.get("close", 0.0) if isinstance(b, dict) else 0.0))
+
                             if decision.action == ACTION_BUY:
-                                last_3_red = all(
-                                    getattr(b, "close", b.get("close", 0.0) if isinstance(b, dict) else 0.0) <
-                                    getattr(b, "open", b.get("open", 0.0) if isinstance(b, dict) else 0.0)
-                                    for b in m1_bars[-3:]
-                                )
-                                if last_3_red:
-                                    log.warning("FALLING KNIFE GUARD: blocked BUY rescue into 3 consecutive M1 red bars")
-                                    return ExecutionResult(ok=False, reason="falling knife guard: 3 consecutive M1 red bars")
+                                last_3_red = all(_c_close(b) < _c_open(b) for b in last_3)
+                                adverse_span = _c_open(last_3[0]) - _c_close(last_3[-1])
+                                has_flash_drop = any((_c_open(b) - _c_close(b)) >= 2.00 for b in last_3)
+                                if last_3_red and (adverse_span >= 3.50 or has_flash_drop):
+                                    log.warning(
+                                        "FALLING KNIFE GUARD: blocked BUY rescue into high-velocity drop (span=%.2f USD, flash=%s)",
+                                        adverse_span, has_flash_drop,
+                                    )
+                                    return ExecutionResult(ok=False, reason="falling knife guard: high-velocity drop")
                             elif decision.action == ACTION_SELL:
-                                last_3_green = all(
-                                    getattr(b, "close", b.get("close", 0.0) if isinstance(b, dict) else 0.0) >
-                                    getattr(b, "open", b.get("open", 0.0) if isinstance(b, dict) else 0.0)
-                                    for b in m1_bars[-3:]
-                                )
-                                if last_3_green:
-                                    log.warning("ROCKET SPIKE GUARD: blocked SELL rescue into 3 consecutive M1 green bars")
-                                    return ExecutionResult(ok=False, reason="rocket spike guard: 3 consecutive M1 green bars")
+                                last_3_green = all(_c_close(b) > _c_open(b) for b in last_3)
+                                adverse_span = _c_close(last_3[-1]) - _c_open(last_3[0])
+                                has_flash_pump = any((_c_close(b) - _c_open(b)) >= 2.00 for b in last_3)
+                                if last_3_green and (adverse_span >= 3.50 or has_flash_pump):
+                                    log.warning(
+                                        "ROCKET SPIKE GUARD: blocked SELL rescue into high-velocity surge (span=%.2f USD, flash=%s)",
+                                        adverse_span, has_flash_pump,
+                                    )
+                                    return ExecutionResult(ok=False, reason="rocket spike guard: high-velocity surge")
 
                     # Smart Asymmetric Multiplier (default 1.0 = flat lot for GANAS CERDAS)
                     mult = (self.settings.rescue_multiplier or 1.0) ** (layer_num - 1)
                     raw_size = exec_volume * mult
                     step = self.settings.lot_step or 0.01
                     exec_volume = min(self.settings.max_lot, round(round(raw_size / step) * step, 2))
+                    # In DEFENSE mode (drawdown < 0%), enforce strict risk conservation: cap Layer 2 to 0.02 lot
+                    if state is not None and daily_pnl_pct < 0:
+                        exec_volume = min(0.02, exec_volume)
                     order_comment = f"RESCUE L{layer_num} {decision.action} lot={exec_volume:.2f}"
                     log.info(
                         "RESCUE RECOVERY TRIGGERED: Layer %d %s @ %s (lot=%.2f, mult=%.2fx, dist=%.2f USD from avg)",
