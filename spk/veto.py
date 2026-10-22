@@ -143,50 +143,101 @@ def evaluate(
     is_defense_or_finish = daily_pnl_pct < 0.0 or (rem_target is not None and 0 < rem_target <= 20.0)
     is_growth = daily_pnl_pct >= 3.0
 
+    # High-Conviction Tactical Confluence Check (Anti-Deadlock Protocol):
+    # If >= 5 agents across >= 3 divisions confirm this direction, supported by Tech-SupportResistance
+    # at the channel boundary, and direction aligns with active session momentum:
+    tactical_confluence_count = sum(
+        1 for s in signals if (s.vote > 0 if direction == ACTION_BUY else s.vote < 0)
+    )
+    confirming_divisions = {
+        s.division for s in signals if (s.vote > 0 if direction == ACTION_BUY else s.vote < 0)
+    }
+    sr_aligned = any(
+        s.agent_id == "Tech-SupportResistance"
+        and (s.vote > 0 if direction == ACTION_BUY else s.vote < 0)
+        for s in signals
+    )
+    session_sig = next((s for s in signals if s.agent_id == "Struct-Session"), None)
+    session_aligned = (
+        session_sig is None
+        or (session_sig.vote > 0 if direction == ACTION_BUY else session_sig.vote < 0)
+        or (session_sig.veto is None)
+    )
+    has_tactical_confluence = (
+        tactical_confluence_count >= 5
+        and len(confirming_divisions) >= 3
+        and sr_aligned
+        and session_aligned
+    )
+
     if direction == ACTION_BUY and htf_score < -0.10:
         opposing_htf = abs(htf_score)
-        if is_defense_or_finish and p.counter_trend_defense_block_enabled and opposing_htf >= 1.40:
-            return VetoResult(
-                hard=True,
-                reason=f"HTF_DIVERGENCE_DEFENSE: Strictly prohibited from opening counter-trend BUY against strong HTF opposition (htf_score={htf_score:.2f} <= -1.40) in Defense/Finish mode",
-                notes=[f"HTF_DIVERGENCE:BUY:{htf_score:.2f}"],
-            )
-        elif not is_growth and opposing_htf >= 1.80:
-            return VetoResult(
-                hard=True,
-                reason=f"HTF_DIVERGENCE_CONTESTED: Prohibited from BUY against severe HTF opposition (htf_score={htf_score:.2f} <= -1.80)",
-                notes=[f"HTF_DIVERGENCE:BUY:{htf_score:.2f}"],
-            )
-        elif opposing_htf >= 2.40:
+        if opposing_htf >= 2.40:
             return VetoResult(
                 hard=True,
                 reason=f"HTF_DIVERGENCE_EXTREME: Blocked BUY against extreme HTF opposition (htf_score={htf_score:.2f} <= -2.40)",
                 notes=[f"HTF_DIVERGENCE:BUY:{htf_score:.2f}"],
             )
+        elif is_defense_or_finish and p.counter_trend_defense_block_enabled and opposing_htf >= 1.40:
+            if has_tactical_confluence and opposing_htf < 1.80:
+                result.confidence_delta -= 0.20
+                result.notes.append(
+                    f"HTF_DIVERGENCE_DEFENSE demoted to soft penalty (-0.20) with tactical S/R confluence ({tactical_confluence_count} confirming, {len(confirming_divisions)} divisions)"
+                )
+            else:
+                return VetoResult(
+                    hard=True,
+                    reason=f"HTF_DIVERGENCE_DEFENSE: Strictly prohibited from opening counter-trend BUY against strong HTF opposition (htf_score={htf_score:.2f} <= -1.40) in Defense/Finish mode",
+                    notes=[f"HTF_DIVERGENCE:BUY:{htf_score:.2f}"],
+                )
+        elif not is_growth and opposing_htf >= 1.80:
+            if has_tactical_confluence:
+                result.confidence_delta -= 0.15
+                result.notes.append(
+                    f"HTF_DIVERGENCE_CONTESTED demoted to soft penalty (-0.15) with tactical S/R confluence ({tactical_confluence_count} confirming, {len(confirming_divisions)} divisions)"
+                )
+            else:
+                return VetoResult(
+                    hard=True,
+                    reason=f"HTF_DIVERGENCE_CONTESTED: Prohibited from BUY against severe HTF opposition (htf_score={htf_score:.2f} <= -1.80)",
+                    notes=[f"HTF_DIVERGENCE:BUY:{htf_score:.2f}"],
+                )
         else:
             result.confidence_delta -= min(0.35, round(opposing_htf * 0.15, 2))
             result.notes.append(f"Counter-trend BUY penalized against opposing HTF (score={htf_score:.2f})")
 
     elif direction == ACTION_SELL and htf_score > 0.10:
         opposing_htf = htf_score
-        if is_defense_or_finish and p.counter_trend_defense_block_enabled and opposing_htf >= 1.40:
-            return VetoResult(
-                hard=True,
-                reason=f"HTF_DIVERGENCE_DEFENSE: Strictly prohibited from opening counter-trend SELL against strong HTF opposition (htf_score=+{htf_score:.2f} >= +1.40) in Defense/Finish mode",
-                notes=[f"HTF_DIVERGENCE:SELL:+{htf_score:.2f}"],
-            )
-        elif not is_growth and opposing_htf >= 1.80:
-            return VetoResult(
-                hard=True,
-                reason=f"HTF_DIVERGENCE_CONTESTED: Prohibited from SELL against severe HTF opposition (htf_score=+{htf_score:.2f} >= +1.80)",
-                notes=[f"HTF_DIVERGENCE:SELL:+{htf_score:.2f}"],
-            )
-        elif opposing_htf >= 2.40:
+        if opposing_htf >= 2.40:
             return VetoResult(
                 hard=True,
                 reason=f"HTF_DIVERGENCE_EXTREME: Blocked SELL against extreme HTF opposition (htf_score=+{htf_score:.2f} >= +2.40)",
                 notes=[f"HTF_DIVERGENCE:SELL:+{htf_score:.2f}"],
             )
+        elif is_defense_or_finish and p.counter_trend_defense_block_enabled and opposing_htf >= 1.40:
+            if has_tactical_confluence and opposing_htf < 1.80:
+                result.confidence_delta -= 0.20
+                result.notes.append(
+                    f"HTF_DIVERGENCE_DEFENSE demoted to soft penalty (-0.20) with tactical S/R confluence ({tactical_confluence_count} confirming, {len(confirming_divisions)} divisions)"
+                )
+            else:
+                return VetoResult(
+                    hard=True,
+                    reason=f"HTF_DIVERGENCE_DEFENSE: Strictly prohibited from opening counter-trend SELL against strong HTF opposition (htf_score=+{htf_score:.2f} >= +1.40) in Defense/Finish mode",
+                    notes=[f"HTF_DIVERGENCE:SELL:+{htf_score:.2f}"],
+                )
+        elif not is_growth and opposing_htf >= 1.80:
+            if has_tactical_confluence:
+                result.confidence_delta -= 0.15
+                result.notes.append(
+                    f"HTF_DIVERGENCE_CONTESTED demoted to soft penalty (-0.15) with tactical S/R confluence ({tactical_confluence_count} confirming, {len(confirming_divisions)} divisions)"
+                )
+            else:
+                return VetoResult(
+                    hard=True,
+                    reason=f"HTF_DIVERGENCE_CONTESTED: Prohibited from SELL against severe HTF opposition (htf_score=+{htf_score:.2f} >= +1.80)",
+                    notes=[f"HTF_DIVERGENCE:SELL:+{htf_score:.2f}"],
+                )
         else:
             result.confidence_delta -= min(0.35, round(opposing_htf * 0.15, 2))
             result.notes.append(f"Counter-trend SELL penalized against opposing HTF (score=+{htf_score:.2f})")

@@ -109,6 +109,7 @@ class Position:
     profit: float = 0.0
     magic: int = 0
     time: datetime | None = None
+    comment: str = ""
 
     @property
     def is_long(self) -> bool:
@@ -493,6 +494,7 @@ class NativeMT5Client:
                     profit=float(p.profit),
                     magic=int(p.magic),
                     time=datetime.fromtimestamp(p.time, tz=UTC),
+                    comment=str(getattr(p, "comment", "") or ""),
                 )
             )
         return out
@@ -687,6 +689,7 @@ class BridgeMT5Client:
                     price_current=float(p.get("price_current", 0.0)),
                     profit=float(p.get("profit", 0.0)),
                     magic=int(p.get("magic", 0)),
+                    comment=str(p.get("comment", "") or ""),
                 )
             )
         return out

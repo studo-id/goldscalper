@@ -538,4 +538,31 @@ def test_session_waterfall_hard_veto_cannot_be_demoted() -> None:
     assert "SESSION VIOLENCE GUARD" in (res.reason or "")
 
 
+def test_htf_divergence_demotes_with_strong_tactical_confluence() -> None:
+    """Verify that HTF divergence (score between 1.80 and 2.40) is demoted when >= 5 agents across >= 3 divisions confirm S/R."""
+    # HTF opposes SELL (score = +1.845)
+    htf_sigs = [
+        AgentSignal(agent_id="TF-M5-Inspector", division="timeframe", vote=1, confidence=0.60, weight=1.2),
+        AgentSignal(agent_id="TF-H1-Regime", division="timeframe", vote=1, confidence=0.75, weight=1.5),
+    ]
+    # Strong tactical consensus confirms SELL at M1 resistance ceiling
+    tactical_sigs = [
+        AgentSignal(agent_id="Struct-Liquidity", division="structure", vote=-1, confidence=0.70, weight=1.3),
+        AgentSignal(agent_id="Struct-Session", division="structure", vote=-1, confidence=0.60, weight=1.3, reasoning="LONDON session bearish drift (-$18.9)"),
+        AgentSignal(agent_id="Struct-Microstructure", division="structure", vote=-1, confidence=0.60, weight=1.3),
+        AgentSignal(agent_id="Tech-Momentum", division="technical", vote=-1, confidence=0.70, weight=1.0),
+        AgentSignal(agent_id="Tech-SupportResistance", division="technical", vote=-1, confidence=0.80, weight=1.0, reasoning="M1 resistance zone ceiling, veto BUY"),
+        AgentSignal(agent_id="Fund-NewsSentiment", division="fundamental", vote=-1, confidence=0.50, weight=0.8),
+    ]
+    signals = htf_sigs + tactical_sigs
+    state = SharedState(daily_pnl_pct=0.5)
+
+    res_sell = evaluate(signals, state, ACTION_SELL)
+    # Must NOT be a hard veto! Demoted to soft penalty (-0.15) with tactical confluence note
+    assert res_sell.hard is False
+    assert res_sell.confidence_delta == -0.15
+    assert any("HTF_DIVERGENCE_CONTESTED demoted to soft penalty" in n for n in res_sell.notes)
+
+
+
 

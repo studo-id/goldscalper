@@ -734,4 +734,93 @@ async def test_position_manager_aggressive_scalper_position_awareness() -> None:
     assert await client.positions("XAUUSD") == []
 
 
+async def test_anti_rescue_piramida_blocks_averaging() -> None:
+    """Verify that if existing positions originated from PYRAMID scaling, averaging rescue layers are blocked."""
+    client = MockMT5Client()
+    om = OrderManager(client=client, settings=settings)
+
+    # An existing pyramid position is open
+    pyr_pos = Position(
+        ticket=7001,
+        symbol=settings.mt5_symbol,
+        side=SIDE_SELL,
+        volume=0.03,
+        price_open=4061.50,
+        price_current=4063.50,
+        profit=-6.0,
+    )
+    pyr_pos.comment = "PYRAMID L2 SELL"
+    client._positions[7001] = pyr_pos
+
+    dec = _decision(action=ACTION_SELL, score=-1.5, confidence=0.75, size=0.03, entry=4063.50)
+    res = await om.execute(dec)
+    assert res is not None
+    assert res.ok is False
+    assert "pyramid positions cannot be rescued with averaging" in (res.reason or "")
+
+
+async def test_pyramid_transition_promotes_bep_or_harvests() -> None:
+    """Verify that when anchor trade is harvested, pyramid position is checked by agent pattern."""
+    client = MockMT5Client()
+    pm = PositionManager(client=client, settings=settings)
+
+    # Anchor trade and pyramid trade
+    anchor = Position(ticket=8001, symbol="XAUUSD", side=SIDE_SELL, volume=0.03, price_open=4065.0, price_current=4057.0, profit=8.0)
+    pyramid = Position(ticket=8002, symbol="XAUUSD", side=SIDE_SELL, volume=0.03, price_open=4062.0, price_current=4057.0, profit=5.0)
+    pyramid.comment = "PYRAMID L2 SELL"
+    client._positions[8001] = anchor
+    client._positions[8002] = pyramid
+    pm.track(anchor)
+    pm.track(pyramid)
+
+    # Context with confirming continuation decision
+    dec_cont = _decision(action=ACTION_SELL, score=-1.8, confidence=0.75)
+    ctx_cont = {"decision": dec_cont, "live_avg_win": 2.50}
+
+    # Harvest anchor trade -> pyramid should be promoted with BEP locked!
+    actions = await pm.manage(anchor, price=4057.0, context=ctx_cont)
+    assert "juggler_runner_harvest" in actions
+    assert "pyramid_promoted_bep" in actions
+    # Pyramid position still alive, SL secured at entry - 0.10 (for SELL)
+    assert len(await client.positions("XAUUSD")) == 1
+    refreshed_pyr = (await client.positions("XAUUSD"))[0]
+    assert refreshed_pyr.sl == round(4062.0 - 0.10, 2)
+
+    # Next scenario: if pattern is weakened/opposing, pyramid is harvested with anchor
+    client._positions.clear()
+    anchor2 = Position(ticket=8003, symbol="XAUUSD", side=SIDE_SELL, volume=0.03, price_open=4065.0, price_current=4057.0, profit=8.0)
+    pyramid2 = Position(ticket=8004, symbol="XAUUSD", side=SIDE_SELL, volume=0.03, price_open=4062.0, price_current=4057.0, profit=-2.0)
+    pyramid2.comment = "PYRAMID L2 SELL"
+    client._positions[8003] = anchor2
+    client._positions[8004] = pyramid2
+    pm.track(anchor2)
+    pm.track(pyramid2)
+
+    dec_weak = _decision(action="HOLD", score=0.0, confidence=0.40)
+    ctx_weak = {"decision": dec_weak, "live_avg_win": 2.50}
+
+    actions2 = await pm.manage(anchor2, price=4057.0, context=ctx_weak)
+    assert "juggler_runner_harvest" in actions2
+    assert "pyramid_harvested_with_anchor" in actions2
+    assert await client.positions("XAUUSD") == []
+
+
+async def test_dynamic_basket_catastrophic_cut_anchored_to_juggler() -> None:
+    """Verify that basket cutloss clamp dynamically scales with DEFENSE vs BALANCED modes instead of static -$38."""
+    client = MockMT5Client()
+    pm = PositionManager(client=client, settings=settings)
+
+    # 2 positions in a rescue basket (total vol = 0.06)
+    pos1 = Position(ticket=9001, symbol="XAUUSD", side=SIDE_SELL, volume=0.03, price_open=4061.5, price_current=4065.0, profit=-10.5)
+    pos2 = Position(ticket=9002, symbol="XAUUSD", side=SIDE_SELL, volume=0.03, price_open=4063.5, price_current=4065.0, profit=-4.5)
+    pos2.comment = "RESCUE L2 SELL"
+    positions = [pos1, pos2]
+
+    # In DEFENSE mode (pnl < 0), clamp is tight (~$9 - $10). Loss of -$15.00 MUST TRIGGER CATASTROPHIC CUT!
+    ctx_def = {"daily_pnl_pct": -1.0, "live_avg_win": 2.50}
+    actions_def = await pm.manage_basket(positions, current_bid=4065.0, current_ask=4065.2, context=ctx_def)
+    assert "basket_cut_closed" in actions_def
+
+
+
 

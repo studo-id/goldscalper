@@ -315,6 +315,18 @@ class OrderManager:
 
                 layer_num = len(same_side_positions) + 1
                 if is_rescue:
+                    # HUKUM ANTI-RESCUE PIRAMIDA:
+                    # Posisi turunan PYRAMID DILARANG KERAS di-rescue dengan layering averaging!
+                    has_pyramid_origin = any(
+                        "PYRAMID" in str(getattr(p, "comment", "") or "").upper()
+                        for p in same_side_positions
+                    )
+                    if has_pyramid_origin:
+                        log.info(
+                            "ANTI-RESCUE PIRAMIDA: Blocked averaging rescue layer on existing pyramid position(s)"
+                        )
+                        return ExecutionResult(ok=False, reason="pyramid positions cannot be rescued with averaging")
+
                     if not self.settings.rescue_mode_enabled:
                         return ExecutionResult(ok=False, reason="rescue mode disabled")
 

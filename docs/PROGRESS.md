@@ -35,6 +35,42 @@ Aturan singkat:
 
 ---
 
+## 2026-10-22 — Anti-Deadlock Protocol, Agent-Checked Pyramid Transition, & Dynamic Juggler Basket Cut
+
+**Phase / Area:** SPK Veto Engine / Execution (Order & Position Manager) / Multi-Entry Safety  
+**Status:** Done & Active  
+
+**Yang dikerjakan**
+- **Forensik & Investigasi Cacat Loss Keranjang -$37.70 & Mutual Deadlock 35 Menit:**
+  - Kasus Tiket 4323982622 & 4323996270: Posisi piramida Layer 2 dibuka saat posisi induk profit, namun induk langsung di-TP (Runner Harvest +$7.50), meninggalkan posisi piramida yatim piatu di dasar lembah ($4,061.53). Ketika harga berbalik naik, sistem *Rescue Recovery* malah menumpuk averaging SELL (martingale) dan menahan keranjang hingga batas cutloss statis -$38.00 terbentur di -$41.10.
+  - Kasus Mutual Deadlock 35 Menit: SPK menghasilkan sinyal STRONG SELL (-1.843, confidence 0.77, skor SELL 4.338 vs BUY 2.495 didukung 6 agen taktikal di atap channel 93%), namun diblokir total oleh hard veto `HTF_DIVERGENCE_CONTESTED` karena skor HTF berlawanan (+1.845 >= 1.80) akibat lilin H1 historis.
+- **Implementasi Solusi 3 Pilar Harmonis:**
+  1. `spk/veto.py` (Anti-Deadlock Confluence Protocol):
+     - Menambahkan verifikasi *High-Conviction Tactical Confluence* (sinyal searah $\ge 5$ agen lintas $\ge 3$ divisi, didukung S/R atap/lantai channel, dan searah drift sesi aktif).
+     - Jika konfluensi terpenuhi, `HTF_DIVERGENCE_CONTESTED` didemosi menjadi soft penalty (-0.15) alih-alih hard veto mutlak.
+  2. `execution/order_manager.py` (Hukum Anti-Rescue Piramida):
+     - Posisi yang berasal dari `PYRAMID SCALING` dilarang keras memicu atau ditumpuk oleh layer *Rescue Recovery* (averaging martingale).
+  3. `execution/position_manager.py` (Agent-Checked Pyramid Transition & Dynamic Juggler Basket Clamp):
+     - Menambahkan fungsi `_handle_orphan_pyramid_positions()`: Saat posisi induk di-TP/harvest, sistem mengecek konfirmasi lilin/momentum watchdog. Jika impuls berlanjut, posisi piramida dipromosikan menjadi Lead Trade dan dikunci dengan Risk-Free BEP (`entry + 0.10`). Jika pola melemah/berbalik, posisi piramida langsung ditutup bersamaan dengan posisi induk.
+     - Mengganti clamp statis -$38.00 dengan formula dinamis Juggler: $\text{clamp} = \max(8.00, \text{live\_avg\_win} \times 4.0 \times \text{health\_mult})$. Di mode DEFENSE, batas cutloss keranjang diperketat ke kisaran aman `-$7 s/d -$10`.
+  4. `runtime.py`:
+     - Memajukan perhitungan `mgmt_context` sebelum loop evaluasi keranjang dan meneruskannya ke `manage_basket()`.
+  5. `core/mt5_connector.py`:
+     - Menambahkan atribut `comment` ke slots `Position` dan memetakan comment dari bridge MT5.
+
+**File tersentuh**
+- `spk/veto.py` — Tactical confluence demotion for HTF divergence.
+- `execution/order_manager.py` — Anti-rescue guard on pyramid positions.
+- `execution/position_manager.py` — Agent-checked pyramid transition and Juggler dynamic basket clamp.
+- `runtime.py` — Context propagation to manage_basket.
+- `core/mt5_connector.py` — Position comment attribute support.
+- `tests/test_spk_veto.py` & `tests/test_execution.py` — 4 new unit tests.
+
+**Verifikasi**
+- `pytest tests/test_spk_veto.py tests/test_execution.py tests/test_wave_engine.py tests/test_technical_division.py tests/test_structural_guard.py -q` → 105 passed (100% clean).
+
+---
+
 ## 2026-10-22 — Trend Continuation S/R Calibration & Anti-Paralysis Fix (Impulse Ride vs Barrier Veto)
 
 **Phase / Area:** SPK Veto Engine / Technical Division (SupportResistance Agent)  

@@ -423,6 +423,22 @@ class Runtime:
                     "last_profit": pos.profit,
                 }
 
+        sod_b = self._sod_balance or self._last_balance or 10000.0
+        target_usd = sod_b * (self.settings.daily_profit_target_pct / 100.0)
+        remaining_target = max(0.0, target_usd - self._daily_realized_pnl)
+        est_rebate = round(self._daily_lots_traded * self.settings.rebate_per_lot_usd, 2)
+        mgmt_context = {
+            "live_avg_win": self._live_avg_win,
+            "remaining_target_usd": remaining_target,
+            "target_usd": target_usd,
+            "equity": self._last_equity,
+            "balance_sod": sod_b,
+            "rebate_usd": est_rebate,
+            "decision": self.orchestrator.last_decision,
+            "state": self.orchestrator.last_state,
+            "daily_pnl_pct": getattr(self.orchestrator.last_state, "daily_pnl_pct", 0.0) if self.orchestrator.last_state else 0.0,
+        }
+
         # Multi-Entry Basket TP evaluation per side (BUY basket & SELL basket independently)
         our_positions = [p for p in positions if p.magic == self.settings.mt5_magic]
         our_buys = [p for p in our_positions if p.is_long]
@@ -434,7 +450,7 @@ class Runtime:
                 bid = quote.bid if quote else None
                 ask = quote.ask if quote else None
                 try:
-                    basket_actions = await self.position_manager.manage_basket(group, bid, ask)
+                    basket_actions = await self.position_manager.manage_basket(group, bid, ask, context=mgmt_context)
                     if "basket_tp_closed" in basket_actions or "basket_cut_closed" in basket_actions:
                         is_win = "basket_tp_closed" in basket_actions
                         log_tag = "TP" if is_win else "COLLECTIVE CUT"
@@ -457,21 +473,6 @@ class Runtime:
                         live = {p.ticket: p for p in positions}
                 except Exception as exc:  # noqa: BLE001
                     log.warning("manage_basket failed for %s: %s", side_name, exc)
-
-        sod_b = self._sod_balance or self._last_balance or 10000.0
-        target_usd = sod_b * (self.settings.daily_profit_target_pct / 100.0)
-        remaining_target = max(0.0, target_usd - self._daily_realized_pnl)
-        est_rebate = round(self._daily_lots_traded * self.settings.rebate_per_lot_usd, 2)
-        mgmt_context = {
-            "live_avg_win": self._live_avg_win,
-            "remaining_target_usd": remaining_target,
-            "target_usd": target_usd,
-            "equity": self._last_equity,
-            "balance_sod": sod_b,
-            "rebate_usd": est_rebate,
-            "decision": self.orchestrator.last_decision,
-            "state": self.orchestrator.last_state,
-        }
 
         # Identify tickets currently part of an active multi-position rescue basket
         rescue_basket_tickets: set[int] = set()

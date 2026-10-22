@@ -506,6 +506,8 @@ class PositionManager:
                 await self.client.close_position(pos.ticket, price=price)
                 self.untrack(pos.ticket)
                 actions.append("target_proximity_tp")
+                pyr_actions = await self._handle_orphan_pyramid_positions(pos, ctx)
+                actions.extend(pyr_actions)
                 return actions
 
             # 5. Dynamic Risk-Free Fast Break-Even Lock (BEP+):
@@ -542,6 +544,8 @@ class PositionManager:
                 await self.client.close_position(pos.ticket, price=price)
                 self.untrack(pos.ticket)
                 actions.append("juggler_runner_harvest")
+                pyr_actions = await self._handle_orphan_pyramid_positions(pos, ctx)
+                actions.extend(pyr_actions)
                 return actions
 
             # 7. Defensive Momentum Harvest (Held >= 90s):
@@ -559,6 +563,8 @@ class PositionManager:
                     await self.client.close_position(pos.ticket, price=price)
                     self.untrack(pos.ticket)
                     actions.append("juggler_htf_defensive_harvest")
+                    pyr_actions = await self._handle_orphan_pyramid_positions(pos, ctx)
+                    actions.extend(pyr_actions)
                     return actions
 
         # Stagnant Trade Fast Scalp Harvest (Salvage TP)
@@ -693,11 +699,78 @@ class PositionManager:
             "target_tp": target_tp,
         }
 
+    async def _handle_orphan_pyramid_positions(
+        self,
+        closed_pos: Position,
+        ctx: dict[str, Any],
+    ) -> list[str]:
+        """Evaluate orphan pyramid positions when anchor trade closes with profit.
+
+        If candle/micro-structure indicates active trend continuation (no opposing rejection wick >= 35%),
+        promote the pyramid position to Lead Trade and secure its SL at Risk-Free BEP (entry + 0.10).
+        If momentum or pattern shows weakness/rejection, harvest the pyramid position immediately.
+        """
+        actions: list[str] = []
+        try:
+            positions = await self.client.positions(closed_pos.symbol)
+        except Exception:
+            return actions
+
+        same_side_pyramids = [
+            p for p in positions
+            if p.ticket != closed_pos.ticket
+            and p.is_long == closed_pos.is_long
+            and "PYRAMID" in str(getattr(p, "comment", "") or "").upper()
+        ]
+        if not same_side_pyramids:
+            return actions
+
+        decision = ctx.get("decision")
+        has_continuation = False
+        if decision is not None:
+            desired_action = "BUY" if closed_pos.is_long else "SELL"
+            has_continuation = (
+                getattr(decision, "action", None) == desired_action
+                and not getattr(decision, "hard_veto", False)
+                and (getattr(decision, "confidence", 0.0) or 0.0) >= 0.55
+            )
+
+        for pyr in same_side_pyramids:
+            pyr_profit = float(pyr.profit or 0.0)
+            if has_continuation and pyr_profit >= -1.0:
+                # Promote to Lead Trade & Lock BEP
+                be_sl = round(pyr.price_open + 0.10 if pyr.is_long else pyr.price_open - 0.10, 2)
+                try:
+                    await self.client.modify_position(pyr.ticket, sl=be_sl, tp=pyr.tp)
+                    pyr.sl = be_sl
+                    log.info(
+                        "PYRAMID TRANSITION: Promoted ticket %s to Lead Trade with Risk-Free BEP SL=%.2f (impulse continuation)",
+                        pyr.ticket, be_sl,
+                    )
+                    actions.append("pyramid_promoted_bep")
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("failed to lock BEP on promoted pyramid %s: %s", pyr.ticket, exc)
+            else:
+                # Harvest/close orphan pyramid immediately to prevent unanchored drawdown
+                try:
+                    await self.client.close_position(pyr.ticket)
+                    self.untrack(pyr.ticket)
+                    log.info(
+                        "PYRAMID TRANSITION: Harvested orphan pyramid ticket %s (profit=$%.2f) along with anchor trade",
+                        pyr.ticket, pyr_profit,
+                    )
+                    actions.append("pyramid_harvested_with_anchor")
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("failed to close orphan pyramid %s: %s", pyr.ticket, exc)
+
+        return actions
+
     async def manage_basket(
         self,
         positions: list[Position],
         current_bid: float | None = None,
         current_ask: float | None = None,
+        context: dict[str, Any] | None = None,
     ) -> list[str]:
         """Check and execute Basket Break-Even / Recovery Take-Profit.
 
@@ -798,7 +871,32 @@ class PositionManager:
         # If adverse move continues relentlessly and total basket net loss exceeds risk ceiling,
         # cut ALL positions collectively. Never cut one and abandon the other!
         if not is_pyramid and not is_hedged_basket:
-            max_basket_loss_usd = max(38.0, round(basket["total_volume"] * 2.50 * 100.0, 2))
+            # Juggler Dynamic Basket Catastrophic Cutloss Clamp:
+            # Anchored dynamically to daily PnL state and live average win.
+            ctx = context or {}
+            live_avg = float(ctx.get("live_avg_win", 0.0) or 0.0)
+            daily_pnl = float(ctx.get("daily_pnl_pct", 0.0) or 0.0)
+
+            if daily_pnl < 0.0:
+                # DEFENSE MODE: tight clamp ($7 - $10)
+                health_mult = 0.70
+                min_clamp = 7.00
+                max_clamp = 10.00
+            elif daily_pnl >= 3.0:
+                # GROWTH MODE: house money allowance ($15 - $20)
+                health_mult = 1.25
+                min_clamp = 15.00
+                max_clamp = 20.00
+            else:
+                # BALANCED MODE ($12 - $15)
+                health_mult = 1.00
+                min_clamp = 12.00
+                max_clamp = 15.00
+
+            base_calc = (live_avg * 4.0 * health_mult) if live_avg >= 2.0 else min_clamp
+            vol_multiplier = round(basket["total_volume"] * 1.50 * 100.0, 2)
+            max_basket_loss_usd = min(max_clamp, max(min_clamp, max(base_calc, vol_multiplier)))
+
             if total_profit <= -max_basket_loss_usd:
                 triggered = True
                 log.warning(
