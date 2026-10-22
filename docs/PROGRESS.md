@@ -35,6 +35,48 @@ Aturan singkat:
 
 ---
 
+## 2026-10-22 — Akun 1 End-to-End Forensics, S/R De-Choke & Scalper Dominance Recalibration
+
+**Phase / Area:** Account 1 Optimization / S/R Gate Calibration / Scalper Dominance  
+**Status:** Done & Active (Akun 1 `gs-bot`)  
+
+**Yang dikerjakan**
+- **Forensik Kinerja Akun 1 (Equity $6,310.02):**
+  - Menganalisis 10 deal MT5 hari ini: 5 menang ($+26.70$), 5 kalah ($-54.90$). Net PnL: $-28.20$.
+  - Kerugian 70% terjadi pukul 13:36 sebelum proteksi hard clamp aktif (SELL 0.06 $-24.80$ dan Rescue L2 0.06 $-13.20$). Setelah `HARD_LOSS_CLAMP_USD=5.00` dipasang pukul 14:00, cut loss berikutnya terbukti terkunci disiplin di $-5.10$.
+  - Mendiagnosis penyebab mogok entry selama 2.5 jam (13:50–16:16):
+    1. *False Macro Bullish:* Menyebabkan penalti palsu $-0.40$ pada posisi SELL. (Telah diperbaiki di `spk/veto.py`).
+    2. *S/R Buffer Choke (55 Pips):* Buffer default $5.50 melumpuhkan order saat harga masih 38 pips dari lantai support (`DYNAMIC DATA GATE: Blocked SELL near support floor dist=3.79, buffer=5.50`).
+    3. *Bobot HTF Dominan (Total 4.5 vs LTF 3.4):* H1 (1.5), H4 (1.5), D1 (1.5) menenggelamkan petugas penembak M1 (1.2) dan M5 (1.2).
+- **Implementasi Kalibrasi Ulang End-to-End pada `.env` Akun 1 (`gs-bot`):**
+  - **Scalper Dominance Agent Weights:**
+    - `TF-M1-Sniper`: **1.2 ➔ 1.8** (+50%)
+    - `TF-M5-Inspector`: **1.2 ➔ 1.6** (+33%)
+    - `Tech-SupportResistance`: **1.0 ➔ 1.4** (+40%)
+    - `TF-H1-Regime`: **1.5 ➔ 1.3**
+    - `TF-H4-Structure` & `TF-D1-Macro`: **1.5 ➔ 1.2**
+  - **Dynamic S/R Buffer De-Choke (6–15 Pips):**
+    - `AGGRESSIVE_SCALPER=true`
+    - `DYNAMIC_SR_BUFFER_RATIO=0.10`
+    - `DYNAMIC_SR_MIN_BUFFER=0.60` ($0.60 = 6 pips)
+    - `DYNAMIC_SR_MAX_BUFFER=1.50` ($1.50 = 15 pips, memangkas batas buffer dari $5.50 menjadi $1.50)
+    - `DYNAMIC_SR_BREAKDOWN_EXT_LIMIT=3.50`
+    - `MIN_CONFIDENCE_FLOOR_NORMAL=0.20`
+  - **Proteksi Modal Terukur (Modal $6,310):**
+    - `HARD_LOSS_CLAMP_USD=5.00`
+    - `FAST_BREAKEVEN_PIPS=12.0`
+    - `MAX_SCALPER_LOT=0.06` (Mencegah slippage berlebih dari lot 0.08)
+    - `RISK_PER_TRADE_PCT=0.5`
+
+**File tersentuh**
+- `.env` (VPS Akun 1 `gs-bot`) — Penambahan konfigurasi scalper dominance, aggressive S/R buffer, dan lot cap
+- `docs/PROGRESS.md` — Dokumentasi sinkronisasi
+
+**Verifikasi**
+- `docker compose up -d --no-deps bot` → Recreated & healthy.
+- `docker logs gs-bot` → M1-Sniper 1.80, M5-Inspector 1.60, SupportResistance 1.40, H1-Regime 1.30, H4 1.20, D1 1.20 registered cleanly.
+- `python3 /tmp/inspect_akun1.py` → Confidence melonjak ke **0.8379**, Equity naik ke **$6,310.02** (++$2.50 dari tiket #4325567996).
+
 ## 2026-10-22 — Dynamic Soft Penalty Drag Capping & Macro Trend Logic Fix in SPK Veto
 
 **Phase / Area:** SPK Veto Engine / Precision Scalping / Confidence Preservation  
