@@ -35,6 +35,34 @@ Aturan singkat:
 
 ---
 
+## 2026-10-22 — Universal Catastrophic Gap Pips-Aware Protection (Akun 1 & Akun 2)
+
+**Phase / Area:** In-Flight Risk Management / Anti-Mati Surai Satpam Berlayer  
+**Status:** Done & Active  
+
+**Yang dikerjakan**
+- **Validasi Nyata Kasus "Mati Surai" Satpam di Akun 1:**
+  - Menemukan bukti konkrit di database `goldscalper` dan `docker logs gs-bot`: Ticket `4321991543` (SELL 0.08 lot, dibuka 10:19:07 UTC, ditutup 10:19:44 UTC dalam durasi 37 detik).
+  - Posisi terkena `JUGGLER CATASTROPHIC GAP CUT` di detik ke-36 dengan kerugian -$11.20 USC (-13.93 pips) menembus batas statis nominal -$8.44.
+  - Akibatnya, seluruh Satpam Berlayer (M1 Rejection Guard, Line X Bastion M5, HTF H1/H4) mati surai dan tidak sempat mengevaluasi struktur pasar karena tercekik formula gap nominal statik pada lot besar (0.08 lot = $0.80/pip, 10.5 pips sudah memicu cut).
+- **Universal Pips-Aware Calibration (`execution/position_manager.py`):**
+  - Menghapus pembatasan `if getattr(s, "aggressive_scalper", False)` agar formula proteksi berbasis pips berlaku secara universal di Akun 1 dan Akun 2.
+  - Rumus ambang batas bencana riil kini menghitung pips dan nilai pip per lot:
+    `gap_pips = 28.0 if is_htf_supporting else 20.0`
+    `pip_val = float(pos.volume * 10.0)`
+    `catastrophic_gap_usd = max(round(max_clamp_ceiling * 1.50, 2), round(gap_pips * pip_val, 2))`
+  - Pada lot 0.08 di Akun 1, ambang gap naik dari $8.44 (10.5 pips) menjadi $16.00 USC (20 pips) atau $22.40 USC (28 pips jika HTF searah). Lilin M1 memiliki ruang bernapas 60 detik penuh tanpa panik wick, dan Satpam Berlayer dapat bekerja normal.
+
+**File tersentuh**
+- `execution/position_manager.py` — Hapus restriksi agresif, buat pips-aware catastrophic gap universal.
+- `docs/PROGRESS.md` — Dokumentasi validasi mati surai Akun 1 dan implementasi perbaikan universal.
+
+**Verifikasi**
+- `pytest tests/test_execution.py tests/test_structural_guard.py tests/test_spk_veto.py tests/test_spk_voting.py -q` → 81 passed.
+- Deployment ke VPS server (`100.114.150.48`), restart `gs-bot` dan `gs-bot-lab`, verifikasi health check dan container running.
+
+---
+
 ## 2026-10-22 — Kesadaran Posisi Dinamis (In-Flight Position Awareness & Pips-Based Clamping Akun 2)
 
 **Phase / Area:** In-Flight Position Management / Catastrophic Gap Calibration / Payoff Asymmetry Fix  

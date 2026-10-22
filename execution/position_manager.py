@@ -315,12 +315,9 @@ class PositionManager:
             # Catastrophic gap represents genuine flash crash (>= 28 pips if HTF supporting, >= 20 pips otherwise)
             min_hold = getattr(s, "watchdog_min_hold_seconds", 60)
             is_htf_supporting = htf_bias.get("verdict") in ("SUPPORTING", "HTF_SUPPORTING")
-            if getattr(s, "aggressive_scalper", False):
-                gap_pips = 28.0 if is_htf_supporting else 20.0
-                pip_val = float(pos.volume * 10.0)
-                catastrophic_gap_usd = max(round(max_clamp_ceiling * 1.50, 2), round(gap_pips * pip_val, 2))
-            else:
-                catastrophic_gap_usd = round(max_clamp_ceiling * 1.25, 2)
+            gap_pips = 28.0 if is_htf_supporting else 20.0
+            pip_val = float(pos.volume * 10.0)
+            catastrophic_gap_usd = max(round(max_clamp_ceiling * 1.50, 2), round(gap_pips * pip_val, 2))
 
             if held < min_hold and current_loss > -catastrophic_gap_usd:
                 pass  # Grace period: allow 1 full M1 candle (60s) to form cleanly without wick panic
