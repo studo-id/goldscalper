@@ -2,8 +2,8 @@
 // Handles historical candle fetching, live tick candle updates, position price lines,
 // timeframe switching, crosshair telemetry, and responsive resize.
 
-import { api, state } from "./ws.js";
-import { esc, fmtPrice, icon } from "./components.js";
+import { api, state } from "./ws.js?v=20261014_17";
+import { esc, fmtPrice, icon } from "./components.js?v=20261021_01";
 
 const TF_SECONDS = {
   M1: 60,

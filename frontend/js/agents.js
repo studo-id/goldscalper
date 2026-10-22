@@ -23,7 +23,7 @@ import {
   voteLabel,
 } from "./components.js?v=20261020_02";
 import { api, manualOrder, panic, setState, state } from "./ws.js?v=20261014_17";
-import { PriceChart } from "./chart.js?v=20261020_03";
+import { PriceChart } from "./chart.js?v=20261022_01";
 
 const sigArrow = (action) =>
   action === "BUY" ? "up" : action === "SELL" ? "down" : "dot";

@@ -47,10 +47,11 @@ export async function api(path, { method = "GET", body, query } = {}) {
       if (v != null) url.searchParams.set(k, v);
     }
   }
+  const activeToken = state.token || (typeof localStorage !== "undefined" ? localStorage.getItem(TOKEN_KEY) : "") || "";
   const res = await fetch(url, {
     method,
     headers: {
-      Authorization: `Bearer ${state.token}`,
+      Authorization: `Bearer ${activeToken}`,
       ...(body ? { "Content-Type": "application/json" } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
