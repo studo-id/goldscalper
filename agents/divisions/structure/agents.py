@@ -20,6 +20,7 @@ from agents.state import (
     VOTE_NEUTRAL,
     VOTE_SELL,
     SharedState,
+    utcnow,
 )
 
 
@@ -259,6 +260,31 @@ class Session(StructureAgent):
         delta_open = round(cur_price - session_open, 2)
         slope = closes[-1] - closes[-3] if n >= 3 else 0.0
 
+        # --- ASIAN RANGE BOX & PRE-LONDON CHARACTER MAPPING ---
+        now_dt = state.ts if hasattr(state, "ts") and state.ts else utcnow()
+        cur_utc_hour = now_dt.hour if hasattr(now_dt, "hour") else 0
+
+        # Filter bars belonging to Asian session today (00:00 - 06:00 UTC)
+        asian_bars = [
+            b for b in bars
+            if getattr(b, "time", None) and hasattr(b.time, "hour")
+            and b.time.date() == now_dt.date()
+            and 0 <= b.time.hour < 6
+        ]
+
+        asian_high = None
+        asian_low = None
+        asian_span = None
+        if asian_bars:
+            asian_high = max(b.high for b in asian_bars)
+            asian_low = min(b.low for b in asian_bars)
+            asian_span = max(1.0, asian_high - asian_low)
+            state.extra["asian_high"] = round(asian_high, 2)
+            state.extra["asian_low"] = round(asian_low, 2)
+            state.extra["asian_span"] = round(asian_span, 2)
+            if asian_span < 12.0:
+                state.extra["session_expansion_prime"] = True
+
         meta: dict[str, Any] = {
             "session": session_name,
             "killzone": killzone,
@@ -269,6 +295,45 @@ class Session(StructureAgent):
             "session_range": round(session_range, 2),
             "delta_open": delta_open,
         }
+        if asian_high is not None and asian_low is not None and asian_span is not None:
+            meta["asian_high"] = round(asian_high, 2)
+            meta["asian_low"] = round(asian_low, 2)
+            meta["asian_span"] = round(asian_span, 2)
+
+        # 0. PRE-LONDON JUDAS SWING LIQUIDITY SWEEP (13:00 - 15:00 WIB / 06:00 - 08:00 UTC)
+        # Prevents costly fake-breakout chasing during pre-market liquidity hunts
+        if 6 <= cur_utc_hour < 8 and asian_high is not None and asian_low is not None:
+            last_bar = bars[-1]
+            probe_high = last_bar.high - asian_high
+            probe_low = asian_low - last_bar.low
+            is_bearish_rejection = (last_bar.close < last_bar.open) or (cur_price <= asian_high + 0.30)
+            is_bullish_rejection = (last_bar.close > last_bar.open) or (cur_price >= asian_low - 0.30)
+
+            # Bearish Judas Sweep: Price probed above Asian High (0.10 to 3.50 USD), but rejected -> VETO BUY, VOTE SELL
+            if 0.10 <= probe_high <= 3.50 and is_bearish_rejection and cur_price <= asian_high + 0.50:
+                meta["session_trend"] = "JUDAS_SWEEP_BEAR"
+                state.extra["judas_sweep_bear"] = True
+                return self.signal(
+                    vote=VOTE_SELL,
+                    confidence=0.85,
+                    reasoning=f"PRE-LONDON JUDAS SWEEP: Asian High swept (${asian_high:.1f} +${probe_high:.2f}), fake breakout rejected -> veto BUY",
+                    veto=VETO_BUY,
+                    timeframe=None,
+                    metadata={**meta, "sweep_delta": round(probe_high, 2)},
+                )
+
+            # Bullish Judas Sweep: Price probed below Asian Low (0.10 to 3.50 USD), but rejected -> VETO SELL, VOTE BUY
+            if 0.10 <= probe_low <= 3.50 and is_bullish_rejection and cur_price >= asian_low - 0.50:
+                meta["session_trend"] = "JUDAS_SWEEP_BULL"
+                state.extra["judas_sweep_bull"] = True
+                return self.signal(
+                    vote=VOTE_BUY,
+                    confidence=0.85,
+                    reasoning=f"PRE-LONDON JUDAS SWEEP: Asian Low swept (${asian_low:.1f} -${probe_low:.2f}), fake breakdown rejected -> veto SELL",
+                    veto=VETO_SELL,
+                    timeframe=None,
+                    metadata={**meta, "sweep_delta": round(probe_low, 2)},
+                )
 
         # 1. WATERFALL DOWNTREND (Drop >= $8.00 with negative slope across M15 window)
         # -> VETO BUY: Prevent catching falling knives during strong session selloffs!

@@ -35,6 +35,41 @@ Aturan singkat:
 
 ---
 
+## 2026-10-22 — Kalibrasi Karakter Sesi (Asian Range Box, Judas Swing) & Koreksi Fast Break-Even
+
+**Phase / Area:** Quantitative Strategy Tuning / Session Intelligence / Risk-to-Reward Optimization  
+**Status:** Done & Active  
+
+**Yang dikerjakan**
+- **Upgrade Kecerdasan `Struct-Session` Tanpa Menambah Agen Baru:**
+  - Menambahkan kalkulasi memori **Asian Range Box** (`asian_high`, `asian_low`, `asian_span`) dari candle M15 rentang `00:00–06:00 UTC` (`07:00–13:00 WIB`).
+  - Mengimplementasikan deteksi **Pre-London Judas Swing Liquidity Sweep** (`06:00–08:00 UTC` / `13:00–15:00 WIB`):
+    - Jika harga menusuk tipis ke atas *Asian High* ($0.10–$3.50) lalu ditolak ekor (*wick rejection*), `Struct-Session` langsung mengeluarkan `VETO_BUY` dan memicu sinyal `VOTE_SELL` dengan event `JUDAS_SWEEP_BEAR`.
+    - Jika harga menusuk ke bawah *Asian Low* lalu ditolak, agen mengeluarkan `VETO_SELL` dan memicu `VOTE_BUY` dengan event `JUDAS_SWEEP_BULL`.
+    - Mencegah fenomena *Buying the Top / Selling the Bottom* yang menjadi penyumbang kerugian terbesar ($-26.00$ USC) pada jam 13:00–14:00 WIB hari ini.
+  - Menandai `session_expansion_prime = True` saat kompresi rentang Asia sempit ($< \$12.00$) untuk mempersiapkan runner TP panjang di sesi London.
+- **Koreksi Formula Matematika Fast Break-Even:**
+  - Memperbaiki kalkulasi nilai pip emas pada `execution/position_manager.py`: 1 pip = $\$0.10$ pergerakan harga. Formula dikoreksi dari pembagian semu menjadi `be_trigger_usd = max(0.60, round(be_trigger_pips * (pos.volume * 10.0), 2))`.
+  - Pada lot mikro 0.01 cent, pemicu BE langsung aktif saat floating profit mencapai $+12$ pips ($+\$1.20$ USC), mengunci Stop Loss ke `Entry + 0.10` (Risk-Free). Posisi yang sudah profit $+15$ pips tidak akan lagi berbalik menjadi full loss.
+- **Kalibrasi Dynamic Hard Loss Clamp:**
+  - Merapatkan batas cutloss `HARD_LOSS_CLAMP_USD` di `.env.lab` server VPS dari $\$7.00$ menjadi $\$3.50$ untuk memangkas rata-rata loss dari $-\$4.02$ menjadi $-\$2.20$, memulihkan rasio Risk-to-Reward (RR) dari $0.49$ ke $> 1.0$.
+- **Isolasi Akun Utama:**
+  - Akun 1 (`gs-bot`, Port 9090, `#184113188`) tetap berjalan kontinu 100% tanpa gangguan.
+
+**File tersentuh**
+- `agents/divisions/structure/agents.py` — Asian Range Box, Pre-London Judas Swing sweep detection.
+- `execution/position_manager.py` — Koreksi konversi pip emas pada pemicu Fast Break-Even.
+- `tests/test_execution.py` — Penyesuaian volume test BE ke 0.01 lot.
+- `tests/test_structure_division.py` — Penambahan unit test Judas Swing bear/bull sweep & Python 3.10 UTC compat.
+- `docs/PROGRESS.md` — Pencatatan worklog kalibrasi karakter sesi dan risk management.
+
+**Verifikasi**
+- `pytest tests/test_execution.py tests/test_structure_division.py` → 51 passed.
+- `pytest tests/test_technical_division.py tests/test_spk_veto.py tests/test_spk_voting.py` → 69 passed.
+- Total 120 integration tests passed tanpa regresi.
+
+---
+
 ## 2026-10-22 — Aktivasi Subdomain Publik `scalper2.7pivot.site` untuk Akun Agresif
 
 **Phase / Area:** Multi-Instance Deployment / Cloudflare Tunnel Routing / Live Telemetry  

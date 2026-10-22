@@ -352,8 +352,8 @@ async def test_fast_breakeven_lock() -> None:
     client = MockMT5Client()
     pm = PositionManager(client=client, settings=settings)
     now = utcnow()
-    pos = await _open_position(client, sl=2340.0, volume=0.10)
-    pos.profit = 2.50  # +25 pips on 0.10 lot = $2.50 >= be_trigger_usd $1.80
+    pos = await _open_position(client, sl=2340.0, volume=0.01)
+    pos.profit = 2.50  # +25 pips on 0.01 lot = $2.50 >= be_trigger_usd $1.20
 
     actions = await pm.manage(pos, price=2350.25, now=now)
     assert "breakeven_locked" in actions

@@ -510,7 +510,8 @@ class PositionManager:
             if not is_in_rescue_basket:
                 be_sl = round(state.entry + 0.10 if pos.is_long else state.entry - 0.10, 2)
                 be_trigger_pips = getattr(s, "fast_breakeven_pips", 12.0)
-                be_trigger_usd = max(1.80, round(pos.volume * (be_trigger_pips / 100.0) * 100.0, 2))
+                # 1 pip on Gold = $0.10 price move -> 1 pip value = pos.volume * 100 * 0.10 = pos.volume * 10.0 USD/USC
+                be_trigger_usd = max(0.60, round(be_trigger_pips * (pos.volume * 10.0), 2))
                 if current_profit >= be_trigger_usd:
                     if pos.is_long and (pos.sl is None or pos.sl < be_sl):
                         await self.client.modify_position(pos.ticket, sl=be_sl, tp=pos.tp)

@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+try:
+    from datetime import UTC
+except ImportError:
+    UTC = timezone.utc
 
 from agents.divisions.structure import (
     Correlation,
@@ -228,4 +233,46 @@ async def test_liquidity_order_block_retest() -> None:
     assert sig.metadata["ob_retest_bull"] is True
     assert sig.metadata["ob_bull_body"] == (2348.0, 2352.0)
     assert "retest" in sig.reasoning.lower()
+
+
+async def test_session_pre_london_judas_sweep_bear() -> None:
+    # Asian Session candles (00:00 - 05:45 UTC): Range 2350 - 2355
+    asian_candles = []
+    base_day = datetime(2026, 1, 5, 0, 0, tzinfo=UTC)
+    for i in range(8):
+        t = base_day + timedelta(minutes=15 * i)
+        asian_candles.append(Candle(symbol=SYMBOL, timeframe="M15", time=t, open=2351, high=2355, low=2350, close=2352))
+    # Pre-London bar at 06:15 UTC (13:15 WIB): probes above Asian High 2355 to 2356.5, closes at 2354 (bearish rejection)
+    t_hunt = base_day + timedelta(hours=6, minutes=15)
+    asian_candles.append(Candle(symbol=SYMBOL, timeframe="M15", time=t_hunt, open=2355.5, high=2356.5, low=2353.5, close=2354))
+
+    st = state(session="london", ts=t_hunt, frames={"M15": asian_candles})
+    sig = await Session().evaluate(st)
+    assert sig.vote == VOTE_SELL
+    assert sig.veto == VETO_BUY
+    assert sig.metadata["session_trend"] == "JUDAS_SWEEP_BEAR"
+    assert st.extra.get("judas_sweep_bear") is True
+    assert st.extra.get("asian_high") == 2355.0
+    assert st.extra.get("asian_low") == 2350.0
+    assert st.extra.get("session_expansion_prime") is True  # Range $5 < $12
+
+
+async def test_session_pre_london_judas_sweep_bull() -> None:
+    # Asian Session candles (00:00 - 05:45 UTC): Range 2350 - 2360
+    asian_candles = []
+    base_day = datetime(2026, 1, 5, 0, 0, tzinfo=UTC)
+    for i in range(8):
+        t = base_day + timedelta(minutes=15 * i)
+        asian_candles.append(Candle(symbol=SYMBOL, timeframe="M15", time=t, open=2355, high=2360, low=2350, close=2353))
+    # Pre-London bar at 06:30 UTC (13:30 WIB): probes below Asian Low 2350 to 2348.8, closes at 2351 (bullish rejection)
+    t_hunt = base_day + timedelta(hours=6, minutes=30)
+    asian_candles.append(Candle(symbol=SYMBOL, timeframe="M15", time=t_hunt, open=2349.5, high=2352, low=2348.8, close=2351))
+
+    st = state(session="london", ts=t_hunt, frames={"M15": asian_candles})
+    sig = await Session().evaluate(st)
+    assert sig.vote == VOTE_BUY
+    assert sig.veto == VETO_SELL
+    assert sig.metadata["session_trend"] == "JUDAS_SWEEP_BULL"
+    assert st.extra.get("judas_sweep_bull") is True
+
 
