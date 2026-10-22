@@ -35,6 +35,39 @@ Aturan singkat:
 
 ---
 
+## 2026-10-22 — Kalibrasi Asimetri Risiko, Loss Clamp & Break-Even Akun 1 (gs-bot)
+
+**Phase / Area:** Core Account Risk Tuning / Payoff Asymmetry / Loss Clamp Optimization  
+**Status:** Done & Active  
+
+**Yang dikerjakan**
+- **Diagnosis Database Akun 1 Hari Ini (Winrate 76.3% tapi PnL Minus):**
+  - Mengaudit 38 closed trades di Akun 1 (`scalper.7pivot.site`): 29 Menang, 9 Kalah.
+  - Rata-rata menang: $+2.74$ USC, tetapi rata-rata kalah membengkak hingga $-10.39$ USC (R:R buruk $0.26$). 1 kali kalah menghapus 4 kemenangan beruntun.
+- **Penerapan Kalibrasi Terpadu pada Akun 1:**
+  - **`HARD_LOSS_CLAMP_USD = 5.00`:** Memotong batas toleransi rugi per trade dari $-10.39$ USC menjadi maksimal $-5.00$ s/d $-6.75$ USC. Berpotensi menyelamatkan $> 50$ USC kerugian dan membalikkan kurva performa menjadi hijau profit tinggi.
+  - **`FAST_BREAKEVEN_PIPS = 12.0`:** Mengunci posisi floating profit yang mencapai $+12$ pips ($+4.80$ USC pada lot 0.04) ke Break-Even (+1 pip / $+0.40$ USC), mengharamkan posisi yang sudah profit berbalik menjadi kerugian penuh.
+  - **Inherited Session Intelligence (`Struct-Session`):** Terlindungi dari *Pre-London Judas Swing sweep* di sekitar batas *Asian High/Low*.
+  - **Grade-Based Dynamic Sizing:**
+    - Tetap mempertahankan `RISK_PER_TRADE_PCT = 0.5%` dengan `MAX_SCALPER_LOT = 0.08` agar modal 6,334 USC tidak overleverage.
+    - Setup Grade A+ mengeksekusi **0.06 – 0.08 lot** (+15 s/d +25 USC per win).
+    - Setup Grade A mengeksekusi **0.04 – 0.05 lot**.
+    - Setup Grade B / Normal mengeksekusi **0.03 – 0.04 lot**.
+- **Reconciliation & Deployment:**
+  - Menulis konfigurasi ke `.env` server VPS.
+  - Melakukan `docker compose up -d --no-deps bot` (Port 9090).
+  - Sistem merekonsiliasi posisi terbuka (Basket L1 + L2) tanpa duplikasi order, status *healthy*, tick streaming interval 0.08s aktif.
+
+**File tersentuh**
+- `.env` (VPS Akun 1) — `HARD_LOSS_CLAMP_USD=5.00`, `FAST_BREAKEVEN_PIPS=12.0`, `MAX_SCALPER_LOT=0.08`.
+- `docs/PROGRESS.md` — Pencatatan progress kronologis.
+
+**Verifikasi**
+- `docker ps` → `gs-bot` Up (healthy) Port 9090; `gs-bot-lab` Up (healthy) Port 9091.
+- `GET /api/control/config` → Uvicorn responsif, 37 agen aktif, tick streaming live.
+
+---
+
 ## 2026-10-22 — FinEng Dynamic Sizing & Target Acceleration (Akun 2 Sprint Calibration)
 
 **Phase / Area:** Quantitative Financial Engineering / Position Sizing / The Juggler Sprint Acceleration  
