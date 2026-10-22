@@ -1,8 +1,8 @@
 // GoldScalper — app bootstrap: nav, router, topbar, symbol strip,
 // collapsible sidebar, session popover, and service worker.
 
-import { esc, fmtMoney, fmtPnl, fmtPrice, hydrateIcons, icon, openModal, toast } from "./components.js?v=20261021_01";
-import { COCKPIT_SUBTABS, VIEWS } from "./agents.js?v=20261020_03";
+import { esc, fmtMoney, fmtPnl, fmtPrice, formatVetoReasonID, hydrateIcons, icon, openModal, toast } from "./components.js?v=20261023_01";
+import { COCKPIT_SUBTABS, VIEWS } from "./agents.js?v=20261023_01";
 import {
   api,
   connectTelemetry,
@@ -370,13 +370,8 @@ function updateCockpitTicker() {
     msg = `HARD VETO: News Blackout — ${newsTitle} · Entry Ditahan Demi Keamanan Modal`;
   } else if (d?.hard_veto && vetoReason) {
     level = "danger";
-    if (vetoReason.toLowerCase().includes("loss") || vetoReason.toLowerCase().includes("drawdown")) {
-      tag = "CIRCUIT BREAKER";
-      msg = `HARD VETO: ${vetoReason} · Proteksi Max Daily Loss Aktif`;
-    } else {
-      tag = "HARD VETO";
-      msg = `HARD VETO: ${vetoReason}`;
-    }
+    tag = "HARD VETO";
+    msg = formatVetoReasonID(vetoReason);
   } else if (t?.cooldown_remaining_s > 0) {
     level = "warning";
     tag = "COOLDOWN";

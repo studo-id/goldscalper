@@ -35,7 +35,33 @@ Aturan singkat:
 
 ---
 
-## 2026-10-22 — Premature Close Fix: Rescue Layer Grace Period Shield & Layering Spacing Deployment (Akun 1 & Akun 2)
+## 2026-10-23 — Frontend UI Indonesian Localization: SPK Consensus & Veto Explanations
+
+**Phase / Area:** Frontend Cockpit UI / Localization & UX Polish  
+**Status:** Done & Deployed (Akun 1 `gs-bot` & Akun 2 `gs-bot-lab`)  
+
+**Yang dikerjakan**
+- **Lokalisasi Bahasa Indonesia pada UI Cockpit:**
+  - Menghilangkan tampilan string pesan developer bahasa Inggris mentah (`Vetoed: TREND_ALIGNED_PING_PONG: Blocked counter-trend BUY in range...`) pada kartu **SPK Consensus** dan ticker atas.
+  - Mengimplementasikan `formatVetoReasonID()` di `frontend/js/components.js`:
+    - Menerjemahkan aturan veto `TREND_ALIGNED_PING_PONG`, `COUNTER_TREND_DEFENSE`, `DYNAMIC DATA GATE`, `DAILY_PROFIT_LOCKED`, `CIRCUIT BREAKER`, `WAVE COOLDOWN`, `LOW CONFIDENCE`, `WIDE SPREAD`, dan `NEWS BLACKOUT` ke dalam kalimat bahasa Indonesia yang informatif, jelas, dan mudah dipahami trader.
+  - Memperbarui `frontend/js/agents.js`:
+    - Mengintegrasikan `formatVetoReasonID()` ke dalam rendering verdict box (`#c-sub`) dan trace tab.
+    - Menambahkan highlight visual class `.vetoed` (`color: #f87171`) dengan line-height yang nyaman untuk teks panjang.
+  - Memperbarui `frontend/js/app.js` dan cache-busting version query string di `frontend/index.html`.
+
+**File tersentuh**
+- `frontend/js/components.js` — Ekspor `formatVetoReasonID()` dengan pemetaan lengkap veto bahasa Indonesia
+- `frontend/js/agents.js` — Integrasi teks bahasa Indonesia pada SPK Consensus verdict box & trace banner
+- `frontend/js/app.js` — Integrasi teks bahasa Indonesia pada live alert ticker bar
+- `frontend/css/cockpit.css` — Penyesuaian tipografi `.verdict-sub` dan warna peringatan `.vetoed`
+- `frontend/index.html` — Cache-busting script & CSS version query
+- `docs/PROGRESS.md` — Dokumentasi pembaruan
+
+**Verifikasi**
+- Browser refresh & asset loading: file termuat tanpa cache conflict.
+
+
 
 **Phase / Area:** Execution Engine / Multi-Entry Layering & Basket Protection  
 **Status:** Done & Deployed (Akun 1 `gs-bot` & Akun 2 `gs-bot-lab`)  

@@ -18,10 +18,11 @@ import {
   relTime,
   formatStreamingDuration,
   formatWIB,
+  formatVetoReasonID,
   toast,
   voteClass,
   voteLabel,
-} from "./components.js?v=20261020_02";
+} from "./components.js?v=20261023_01";
 import { api, manualOrder, panic, setState, state } from "./ws.js?v=20261014_17";
 import { PriceChart } from "./chart.js?v=20261022_01";
 
@@ -224,12 +225,12 @@ export const cockpit = {
             <div class="verdict-box">
               <span class="verdict-strength" id="c-strength">${esc(strength)} SIGNAL</span>
               <span class="verdict-action ${esc(action)}" id="c-action">${esc(action)}</span>
-              <span class="verdict-sub mono" id="c-sub">${
+              <span class="verdict-sub mono ${d?.hard_veto ? "vetoed" : ""}" id="c-sub">${
                 d?.tradable
                   ? `Lot ${fmtNum(d?.size, 2)} · SL ${fmtPrice(d?.sl)} · TP ${fmtPrice(d?.tp)}`
                   : d?.hard_veto
-                    ? `Vetoed: ${esc(d?.veto_reason || "Risk guard")}`
-                    : "No tradable edge"
+                    ? esc(formatVetoReasonID(d?.veto_reason))
+                    : "Tidak ada peluang entry valid (Standby)"
               }</span>
             </div>
 
@@ -562,11 +563,16 @@ export const cockpit = {
 
     const cSub = root.querySelector("#c-sub");
     if (cSub) {
+      if (d?.hard_veto) {
+        cSub.classList.add("vetoed");
+      } else {
+        cSub.classList.remove("vetoed");
+      }
       cSub.textContent = d?.tradable
         ? `Lot ${fmtNum(d?.size, 2)} · SL ${fmtPrice(d?.sl)} · TP ${fmtPrice(d?.tp)}`
         : d?.hard_veto
-          ? `Vetoed: ${esc(d?.veto_reason || "Risk guard")}`
-          : "No tradable edge";
+          ? formatVetoReasonID(d?.veto_reason)
+          : "Tidak ada peluang entry valid (Standby)";
     }
 
     const cScore = root.querySelector("#c-score");
@@ -868,7 +874,7 @@ function traceBody(d) {
     return `<div style="padding:10px 14px"><div class="veto-banner">${icon(
       "shield",
       15,
-    )}<span>Hard veto active — ${esc(d.veto_reason || "Risk guard gate")}. Entry blocked regardless of consensus.</span></div></div>`;
+    )}<span>Hard Veto Aktif — ${esc(formatVetoReasonID(d.veto_reason))}. Entry dibatalkan demi keamanan modal.</span></div></div>`;
   }
   const votes = (d?.votes || []).slice().sort((a, b) => {
     const sa = a.vote * a.confidence * (a.weight ?? 1);

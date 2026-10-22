@@ -202,6 +202,110 @@ export function formatWIB(ts, includeSeconds = true) {
   return d.toLocaleString("id-ID", opt).replace(/\./g, ":") + " WIB";
 }
 
+/* -------------------------------------------------- Indonesian Veto Translator */
+export function formatVetoReasonID(raw) {
+  if (!raw) return "Ditolak Veto: Aturan manajemen risiko aktif (Standby)";
+  let r = String(raw).trim();
+  r = r.replace(/^Vetoed:\s*/i, "").replace(/^HARD VETO:\s*/i, "").trim();
+  const lower = r.toLowerCase();
+
+  // 1. TREND_ALIGNED_PING_PONG
+  if (lower.includes("trend_aligned_ping_pong")) {
+    if (lower.includes("buy") && lower.includes("bearish")) {
+      const match = r.match(/\((\d+)\s+htf scouts opposing(?::\s*([^)]+))?\)/i);
+      const scouts = match ? (match[2] ? ` (${match[2]})` : ` (${match[1]} analis HTF)`) : " (M15/M30/H4/D1)";
+      return `Ditolak Veto: TREND_ALIGNED_PING_PONG · Order BUY melawan tren diblokir di area sideway karena tren makro HTF sedang BEARISH kuat${scouts}. Hanya diizinkan order SELL di resisten!`;
+    }
+    if (lower.includes("sell") && lower.includes("bullish")) {
+      const match = r.match(/\((\d+)\s+htf scouts opposing(?::\s*([^)]+))?\)/i);
+      const scouts = match ? (match[2] ? ` (${match[2]})` : ` (${match[1]} analis HTF)`) : "";
+      return `Ditolak Veto: TREND_ALIGNED_PING_PONG · Order SELL melawan tren diblokir di area sideway karena tren makro HTF sedang BULLISH kuat${scouts}. Hanya diizinkan order BUY di support!`;
+    }
+    return `Ditolak Veto: TREND_ALIGNED_PING_PONG · Order melawan tren dilarang di area sideway. Hanya eksekusi searah tren besar yang diizinkan!`;
+  }
+
+  // 2. COUNTER_TREND_DEFENSE
+  if (lower.includes("counter_trend_defense")) {
+    if (lower.includes("buy") && lower.includes("bearish")) {
+      return "Ditolak Veto (Mode Defense): Dilarang membuka order BUY melawan tren BEARISH H1/D1 demi melindungi modal!";
+    }
+    if (lower.includes("sell") && lower.includes("bullish")) {
+      return "Ditolak Veto (Mode Defense): Dilarang membuka order SELL melawan tren BULLISH H1/D1 demi melindungi modal!";
+    }
+    return "Ditolak Veto (Mode Defense): Posisi melawan tren dilarang saat drawdown aktif!";
+  }
+
+  // 3. DYNAMIC DATA GATE / S/R Floor/Ceiling block
+  if (lower.includes("dynamic data gate") || lower.includes("near support floor") || lower.includes("near resistance ceiling") || lower.includes("probing below support") || lower.includes("probing above resistance")) {
+    if (lower.includes("support")) {
+      const distMatch = r.match(/dist=([\d.]+)/i);
+      const distInfo = distMatch ? ` (jarak ${distMatch[1]} USD)` : "";
+      return `Ditolak Veto: S/R Dinamis · Dilarang SELL terlalu dekat dengan lantai support${distInfo} tanpa konfirmasi candle breakdown M5!`;
+    }
+    if (lower.includes("resistance")) {
+      const distMatch = r.match(/dist=([\d.]+)/i);
+      const distInfo = distMatch ? ` (jarak ${distMatch[1]} USD)` : "";
+      return `Ditolak Veto: S/R Dinamis · Dilarang BUY terlalu dekat dengan atap resisten${distInfo} tanpa konfirmasi candle breakout M5!`;
+    }
+    return `Ditolak Veto: S/R Dinamis · Harga berada di zona batas kritis support/resisten tanpa konfirmasi tembus!`;
+  }
+
+  // 4. DAILY_PROFIT_LOCKED
+  if (lower.includes("daily_profit_locked") || lower.includes("profit locked") || lower.includes("target achieved") || lower.includes("remaining target <= $0")) {
+    return "Ditolak Veto: Target profit harian telah terkunci disiplin. Semua order spekulatif ditahan untuk mengamankan keuntungan!";
+  }
+
+  // 5. DAILY_LOSS_LIMIT / Circuit Breaker
+  if (lower.includes("daily_loss") || lower.includes("max daily loss") || lower.includes("circuit breaker") || lower.includes("hard_loss_clamp")) {
+    return "Ditolak Veto (Circuit Breaker): Batas toleransi kerugian harian tercapai. Trading ditangguhkan otomatis untuk melindungi modal!";
+  }
+
+  // 6. WAVE ENGINE COOLDOWN
+  if (lower.includes("broken wave") || lower.includes("veto_wave") || lower.includes("wave cooldown")) {
+    const sMatch = r.match(/(\d+)s remaining/i);
+    const sRem = sMatch ? ` (${sMatch[1]} detik tersisa)` : "";
+    return `Ditolak Veto: Wave Cooldown Aktif${sRem} · Gelombang tren terputus, menunggu struktur harga kembali stabil.`;
+  }
+
+  // 7. LOW CONFIDENCE
+  if (lower.includes("low confidence") || lower.includes("consensus too weak") || lower.includes("conflicted")) {
+    const confMatch = r.match(/([\d.]+)\s*<\s*([\d.]+)/i);
+    const confDetail = confMatch ? ` (${confMatch[1]} < Syarat ${confMatch[2]})` : "";
+    return `Ditolak Veto: Konsensus Terlalu Lemah${confDetail} · Petugas analis belum sepakat atau sinyal masih terbelah.`;
+  }
+
+  // 8. WIDE SPREAD
+  if (lower.includes("wide spread") || lower.includes("spread_points") || lower.includes("spread too high")) {
+    return "Ditolak Veto: Spread Broker Melebar · Biaya transaksi terlalu tinggi, menunggu spread kembali normal.";
+  }
+
+  // 9. NEWS BLACKOUT
+  if (lower.includes("news blackout") || lower.includes("high impact news")) {
+    return "Ditolak Veto: News Blackout · Berita ekonomi berdampak tinggi (High-Impact), order ditahan untuk menghindari lonjakan liar.";
+  }
+
+  // 10. D1 MACRO
+  if (lower.includes("d1 macro") || lower.includes("d1_macro")) {
+    return `Ditolak Veto: Tren Makro D1 · Sinyal harian berlawanan arah dengan arah trading yang diajukan.`;
+  }
+
+  // 11. Generic sentence replacement for anything else
+  let translated = r
+    .replace(/Blocked counter-trend BUY in range/gi, "Order BUY melawan tren diblokir di area sideway")
+    .replace(/Blocked counter-trend SELL in range/gi, "Order SELL melawan tren diblokir di area sideway")
+    .replace(/while macro HTF is strongly BEARISH/gi, "karena tren makro HTF sedang BEARISH kuat")
+    .replace(/while macro HTF is strongly BULLISH/gi, "karena tren makro HTF sedang BULLISH kuat")
+    .replace(/HTF scouts opposing/gi, "petugas HTF menolak")
+    .replace(/Only SELL allowed at resistance!?/gi, "Hanya diizinkan order SELL di resisten!")
+    .replace(/Only BUY allowed at support!?/gi, "Hanya diizinkan order BUY di support!")
+    .replace(/Strictly prohibited from opening counter-trend/gi, "Dilarang keras membuka posisi melawan tren")
+    .replace(/in Defense Mode/gi, "dalam Mode Defense")
+    .replace(/against confirmed/gi, "melawan konfirmasi tren");
+
+  return `Ditolak Veto: ${translated}`;
+}
+
+
 /* --------------------------------------------------------------- toast */
 export function toast({ title, text = "", type = "info", timeout = 4200 }) {
   const root = document.getElementById("toast-root");
