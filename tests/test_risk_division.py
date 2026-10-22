@@ -16,7 +16,7 @@ from agents.divisions.risk import (
     proposed_stop_distance,
 )
 from agents.state import VOTE_NEUTRAL, SharedState
-from config.settings import settings
+from config.settings import Settings, settings
 from core.market_data import Candle, tf_seconds
 from execution import risk_gate
 from spk.decision import ACTION_BUY, ACTION_SELL, STRENGTH_STRONG, SPKDecision
@@ -387,3 +387,46 @@ async def test_gate_apply_does_not_veto_hold() -> None:
     decision = SPKDecision(action="HOLD")
     risk_gate.apply(decision, state())
     assert decision.hard_veto is False
+
+
+async def test_position_sizer_small_capital_sprint_scaling() -> None:
+    # Test 1100 USC small-capital aggressive sprint setup
+    custom_settings = Settings(
+        risk_per_trade_pct=1.2,
+        aggressive_scalper=True,
+        max_scalper_lot=0.06,
+        lot_step=0.01,
+        min_lot=0.01,
+        max_lot=50.0,
+        daily_profit_target_pct=35.0,
+    )
+    sizer = PositionSizer(settings=custom_settings)
+
+    # Grade A+ High-Conviction setup in BALANCED mode with tight ATR/spread
+    st_high = state(
+        equity=1100.0,
+        balance_start_of_day=1100.0,
+        daily_pnl_pct=0.5,
+        daily_realized_pnl=5.5,
+        spread_points=15,
+        extra={"spk_confidence": 0.75, "spk_score": 5.2},
+    )
+    sig_high = await sizer.evaluate(st_high)
+    assert sig_high.metadata["setup_grade"] == "A+"
+    assert sig_high.metadata["high_conviction"] is True
+    # Lot should be dynamic and reach sprint sizing (0.04 - 0.06), NOT trapped at 0.01
+    assert 0.04 <= sig_high.metadata["size"] <= 0.06
+
+    # Normal Grade B scalp setup
+    st_norm = state(
+        equity=1100.0,
+        balance_start_of_day=1100.0,
+        daily_pnl_pct=0.5,
+        daily_realized_pnl=5.5,
+        spread_points=15,
+        extra={"spk_confidence": 0.40, "spk_score": 1.5},
+    )
+    sig_norm = await sizer.evaluate(st_norm)
+    assert sig_norm.metadata["setup_grade"] == "B"
+    assert 0.02 <= sig_norm.metadata["size"] <= 0.04
+

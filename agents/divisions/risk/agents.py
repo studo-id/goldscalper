@@ -122,11 +122,14 @@ class PositionSizer(RiskAgent):
             # 2. Portfolio Health Multiplier (AGENTS.md Juggler Directive):
             daily_pnl_pct = float(state.daily_pnl_pct or 0.0)
             extra = state.extra if hasattr(state, "extra") and isinstance(state.extra, dict) else {}
+            spk_conf = float(extra.get("spk_confidence", 0.0) or 0.0)
+            spk_score = float(extra.get("spk_score", 0.0) or 0.0)
             is_high_conviction = (
                 bool(extra.get("high_confluence"))
-                or float(extra.get("spk_confidence", 0.0) or 0.0) >= 0.70
-                or float(extra.get("spk_score", 0.0) or 0.0) >= 5.0
+                or spk_conf >= 0.70
+                or abs(spk_score) >= 5.0
             )
+            setup_grade = "A+" if is_high_conviction else ("A" if abs(spk_score) >= 3.0 or spk_conf >= 0.55 else "B")
 
             # Target pursuit demand factor: when chasing daily sprint target, quantify the pull
             target_urgency = min(1.35, max(1.0, round(remaining_usd / max(1.0, target_usd * 0.5), 3)))
@@ -140,6 +143,9 @@ class PositionSizer(RiskAgent):
                 defense_ceiling = 0.03 if daily_pnl_pct <= -4.0 else 0.04
                 max_scalper_lot = min(max_scalper_lot, defense_ceiling)
                 health_mult = max(0.40, min(0.75, round(1.0 + (daily_pnl_pct / 20.0), 3)))
+                if is_high_conviction:
+                    # Grade A+ High-Conviction in DEFENSE allows controlled recovery up to defense ceiling
+                    health_mult = min(1.00, round(health_mult * 1.35, 3))
             elif daily_pnl_pct >= 3.0:
                 # GROWTH: expand lot dynamically using house money from broker gains
                 mode_name = "GROWTH"
@@ -149,7 +155,14 @@ class PositionSizer(RiskAgent):
             else:
                 # BALANCED: standard operating baseline
                 mode_name = "BALANCED"
-                health_mult = round(1.20 * target_urgency, 3) if is_high_conviction else 1.00
+                if is_high_conviction:
+                    conv_boost = 1.40 if getattr(s, "aggressive_scalper", False) else 1.20
+                    health_mult = round(conv_boost * target_urgency, 3)
+                elif setup_grade == "A":
+                    conv_boost = 1.15 if getattr(s, "aggressive_scalper", False) else 1.05
+                    health_mult = round(conv_boost * target_urgency, 3)
+                else:
+                    health_mult = 1.00
 
             dynamic_clamp_budget = round(base_clamp * health_mult, 2)
 
@@ -170,11 +183,12 @@ class PositionSizer(RiskAgent):
             size = min(max_scalper_lot, min(s.max_lot, max(s.min_lot, round_to_step(dynamic_size, s.lot_step))))
 
             return self.emit(
-                f"TARGET_SEEKING [{mode_name} x{health_mult:.2f}{' HIGH_CONV' if is_high_conviction else ''}]: rem=${remaining_usd:.2f}, clamp=${dynamic_clamp_budget:.2f}, lot={size}",
+                f"TARGET_SEEKING [{mode_name} Grade {setup_grade} x{health_mult:.2f}]: rem=${remaining_usd:.2f}, clamp=${dynamic_clamp_budget:.2f}, lot={size}",
                 {
                     "size": size,
                     "sizing_mode": "TARGET_SEEKING",
                     "portfolio_mode": mode_name,
+                    "setup_grade": setup_grade,
                     "high_conviction": is_high_conviction,
                     "health_multiplier": health_mult,
                     "dynamic_clamp_budget": dynamic_clamp_budget,

@@ -35,6 +35,43 @@ Aturan singkat:
 
 ---
 
+## 2026-10-22 — FinEng Dynamic Sizing & Target Acceleration (Akun 2 Sprint Calibration)
+
+**Phase / Area:** Quantitative Financial Engineering / Position Sizing / The Juggler Sprint Acceleration  
+**Status:** Done & Active  
+
+**Yang dikerjakan**
+- **Pemberantasan "Rounding Trap 0.01" pada Modal Kecil:**
+  - Mendiagnosa penyebab lot Akun 2 (1,100 USC) terkunci kaku di 0.01 lot: persentase risiko 0.5% hanya mengalokasikan budget $5.50 USC, yang ketika dibagi jarak SL (35–40 pips) selalu menghasilkan `0.0157` dan terpotong ke bawah menjadi `0.01`.
+  - Mengintegrasikan **Grade-Based Dynamic Sizing** di `agents/divisions/risk/agents.py` (`Risk-PositionSizer`):
+    - **Grade A+ Setup (`spk_score >= 5.0` atau `spk_confidence >= 0.70` atau `high_confluence`):** Diberikan *conviction boost* $1.40\times$ (hingga $1.89\times$ dengan target urgency) yang melipatgandakan lot ke rentang sprint **0.04 – 0.06 lot** untuk memanen **+10 s/d +20 USC** per kemenangan.
+    - **Grade A Setup (`spk_score >= 3.0` atau `spk_confidence >= 0.55`):** Bergerak dinamis di **0.02 – 0.04 lot**.
+    - **Grade B / Normal Scalp:** Bergerak defensif di **0.01 – 0.02 lot**.
+    - **Mode DEFENSE Recovery:** Setup Grade A+ diizinkan menggunakan lot terukur hingga plafon *defense ceiling* (0.03–0.04 lot) untuk memulihkan saldo secara terarah.
+- **Volatilitas ATR Dinamis (Inverse SL Distance):**
+  - Stop Loss ketat (12–18 pips) secara otomatis meningkatkan ukuran lot karena risiko dolar per pip kecil.
+  - Stop Loss lebar (35–45 pips) secara otomatis mengecilkan ukuran lot agar batas kerugian dolar tetap konstan.
+- **Sprint Acceleration & Target Tapering:**
+  - Menghubungkan kecepatan sisa target harian 35% (`remaining_usd`) ke sizing.
+  - Tapering halus (*smooth landing*) aktif saat sisa target $< 10\%$ (lot mengecil bertahap hingga 0.01).
+  - Profit Lock otomatis mengunci lot ke 0.00 saat target 35% terpenuhi penuh.
+- **Kalibrasi Parameter Sprint `.env.lab` (VPS Akun 2):**
+  - Mengubah `RISK_PER_TRADE_PCT=1.2` (dari `0.5%`), menyediakan ruang napas budget risiko ~13.20 USC.
+  - Menetapkan `MAX_SCALPER_LOT=0.06` sebagai plafon batas atas pengaman akun sprint.
+- **Isolasi Akun Utama:**
+  - Akun 1 (`gs-bot`, Port 9090) tetap 100% aman dan tidak terganggu.
+
+**File tersentuh**
+- `agents/divisions/risk/agents.py` — Grade-based dynamic sizing, setup grade classification (A+/A/B), defense conviction boost.
+- `tests/test_risk_division.py` — Import `Settings`, menambahkan `test_position_sizer_small_capital_sprint_scaling`.
+- `docs/PROGRESS.md` — Pencatatan progress kronologis.
+
+**Verifikasi**
+- `pytest tests/test_risk_division.py tests/test_execution.py` → 62 passed in 0.33s.
+- `test_position_sizer_small_capital_sprint_scaling` → Passed (Grade A+ setup menghasilkan 0.05 lot, Grade B menghasilkan 0.03 lot).
+
+---
+
 ## 2026-10-22 — Kalibrasi Karakter Sesi (Asian Range Box, Judas Swing) & Koreksi Fast Break-Even
 
 **Phase / Area:** Quantitative Strategy Tuning / Session Intelligence / Risk-to-Reward Optimization  
