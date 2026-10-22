@@ -35,6 +35,34 @@ Aturan singkat:
 
 ---
 
+## 2026-10-22 — Aktivasi Subdomain Publik `scalper2.7pivot.site` untuk Akun Agresif
+
+**Phase / Area:** Multi-Instance Deployment / Cloudflare Tunnel Routing / Live Telemetry  
+**Status:** Done & Active  
+
+**Yang dikerjakan**
+- **Routing Subdomain Terisolasi via Cloudflare Tunnel (`9router_tunnel`):**
+  - Mengkonfigurasi route baru di Cloudflare Zero Trust: `scalper2.7pivot.site` ➔ `http://gs-bot-lab:9091`.
+  - Menghubungkan container `9router_tunnel` ke docker network `gs-net` untuk resolusi DNS internal tanpa hambatan.
+  - Memperbarui `CORS_ORIGINS` di `.env.lab` server VPS untuk mengizinkan `https://scalper2.7pivot.site`.
+- **Verifikasi Live Cockpit & Side-by-Side Monitoring:**
+  - `https://scalper2.7pivot.site` sukses beroperasi penuh menampilkan PWA Cockpit live untuk user `uhe@7pivot.site` (Akun `#184199028`).
+  - WebSocket telemetry mengalir realtime: chart M1/M5, order tracking line, SPK Consensus strong signal SELL.
+  - Eksekusi order live aktif terpantau di tiket `#4321135865` (SELL 0.01 lot di 4,083.78) dengan floating profit.
+  - Saldo akun lab bertumbuh dari `1,108.00 USC` menjadi `1,110.20 USC`.
+  - Akun 1 (`scalper.7pivot.site`, `#184113188`, Port 9090) tetap berjalan kontinu 100% tanpa gangguan untuk observasi 24 jam.
+
+**File tersentuh**
+- `.env.lab` (VPS) — penambahan domain `https://scalper2.7pivot.site` ke `CORS_ORIGINS`
+- `docs/PROGRESS.md` — pencatatan worklog publikasi subdomain scalper2
+
+**Verifikasi**
+- `curl -i https://scalper.7pivot.site/health` → 200 OK (Akun 1 Konservatif)
+- `curl -i https://scalper2.7pivot.site/health` → 200 OK (Akun 2 Agresif)
+- Dashboard `https://scalper2.7pivot.site` beroperasi live dengan status `Algo ON`, `Running`, dan `IN TRADE`.
+
+---
+
 ## 2026-10-22 — Kalibrasi Aggressive Scalper Mode pada Instance 2 (Lab / uhe@7pivot.site)
 
 **Phase / Area:** Quantitative Strategy Tuning / Dynamic SR Relaxation / Multi-Instance Isolation  
