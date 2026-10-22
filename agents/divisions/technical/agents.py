@@ -155,6 +155,8 @@ class SupportResistance(TechnicalAgent):
         self.confirm_range_usd: float = getattr(self.s, "micro_sr_confirm_range_usd", 1.20)
         self.dead_zone_enabled: bool = getattr(self.s, "micro_sr_dead_zone_enabled", False)
         self.dead_zone_max_span: float = getattr(self.s, "micro_sr_dead_zone_max_span", 12.00)
+        self.exhaustion_veto_enabled: bool = getattr(self.s, "micro_sr_exhaustion_veto_enabled", True)
+        self.aggressive: bool = getattr(self.s, "aggressive_scalper", False)
 
     async def evaluate(self, state: SharedState) -> AgentSignal:
         b = self.bars(state)
@@ -241,7 +243,7 @@ class SupportResistance(TechnicalAgent):
 
                 # 0. Micro-Exhaustion Protection (AcengGold-grade pullback timing guard)
                 # When in bear trend: if M1 & M5 are both bouncing bullish, veto continuation SELL at valley bottom
-                if regime.micro_exhaustion == "BULLISH_BOUNCE" and (regime.regime == REGIME_TRENDING_BEAR or regime.direction == "SELL"):
+                if self.exhaustion_veto_enabled and regime.micro_exhaustion == "BULLISH_BOUNCE" and (regime.regime == REGIME_TRENDING_BEAR or regime.direction == "SELL"):
                     meta["micro_sr_event"] = "MICRO_EXHAUSTION_BOUNCE"
                     return self.signal(
                         VOTE_NEUTRAL,
@@ -251,7 +253,7 @@ class SupportResistance(TechnicalAgent):
                         veto=VETO_SELL,
                     )
                 # When in bull trend: if M1 & M5 are both dipping bearish, veto continuation BUY at mountain peak
-                if regime.micro_exhaustion == "BEARISH_DIP" and (regime.regime == REGIME_TRENDING_BULL or regime.direction == "BUY"):
+                if self.exhaustion_veto_enabled and regime.micro_exhaustion == "BEARISH_DIP" and (regime.regime == REGIME_TRENDING_BULL or regime.direction == "BUY"):
                     meta["micro_sr_event"] = "MICRO_EXHAUSTION_DIP"
                     return self.signal(
                         VOTE_NEUTRAL,
@@ -342,12 +344,14 @@ class SupportResistance(TechnicalAgent):
                 # 4. Active Trend Continuation in Mid Channel (When Trending, Dead-Zone is SHUT OFF!)
                 if regime.is_trending and regime.allow_trend_continuation:
                     if regime.direction == "SELL":
-                        if pos_pct <= 0.30 or close <= (m1_support + buf):
+                        min_sr_dist = 0.50 if self.aggressive else buf
+                        pos_limit = 0.15 if self.aggressive else 0.30
+                        if pos_pct <= pos_limit or close <= (m1_support + min_sr_dist):
                             meta["micro_sr_event"] = "TREND_BLOCKED_AT_SUPPORT"
                             return self.signal(
                                 VOTE_NEUTRAL,
                                 0.80,
-                                f"bearish trend expansion blocked at M1 support floor (${close:.2f} <= ${m1_support + buf:.2f}, {pos_pct*100:.1f}%), veto SELL until breakdown",
+                                f"bearish trend expansion blocked at M1 support floor (${close:.2f} <= ${m1_support + min_sr_dist:.2f}, {pos_pct*100:.1f}%), veto SELL until breakdown",
                                 meta,
                                 veto=VETO_SELL,
                             )
@@ -360,12 +364,14 @@ class SupportResistance(TechnicalAgent):
                             veto=VETO_BUY,  # Disallow buying against the wave
                         )
                     if regime.direction == "BUY":
-                        if pos_pct >= 0.70 or close >= (m1_resistance - buf):
+                        min_sr_dist = 0.50 if self.aggressive else buf
+                        pos_limit = 0.85 if self.aggressive else 0.70
+                        if pos_pct >= pos_limit or close >= (m1_resistance - min_sr_dist):
                             meta["micro_sr_event"] = "TREND_BLOCKED_AT_RESISTANCE"
                             return self.signal(
                                 VOTE_NEUTRAL,
                                 0.80,
-                                f"bullish trend expansion blocked at M1 resistance ceiling (${close:.2f} >= ${m1_resistance - buf:.2f}, {pos_pct*100:.1f}%), veto BUY until breakout",
+                                f"bullish trend expansion blocked at M1 resistance ceiling (${close:.2f} >= ${m1_resistance - min_sr_dist:.2f}, {pos_pct*100:.1f}%), veto BUY until breakout",
                                 meta,
                                 veto=VETO_BUY,
                             )

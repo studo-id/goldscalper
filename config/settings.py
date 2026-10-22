@@ -109,6 +109,14 @@ class Settings(BaseSettings):
     micro_sr_veto_enabled: bool = True
     micro_sr_lookback_m1: int = 20           # 20 bars M1 = 20 minutes local swing window
     micro_sr_confirm_range_usd: float = 1.20 # Variable confirmation range buffer ($1.20 = 12 pips buffer)
+    micro_sr_exhaustion_veto_enabled: bool = True # If False in aggressive, micro-exhaustion bounce is soft warning, not hard VETO_SELL
+
+    # --- Aggressive Scalper Mode & Dynamic SR Boundaries ---
+    aggressive_scalper: bool = False           # When True, relaxes boundary buffers for rapid scalping
+    dynamic_sr_buffer_ratio: float = 0.28      # Ratio of range height used as buffer (0.10 in aggressive)
+    dynamic_sr_min_buffer: float = 1.80        # Min buffer distance in USD ($0.60 in aggressive)
+    dynamic_sr_max_buffer: float = 4.80        # Max buffer distance in USD ($1.50 in aggressive)
+    dynamic_sr_breakdown_ext_limit: float = 1.20 # Max USD beyond support before blocking chase ($3.50 in aggressive)
 
     # --- Execution / instrument ---
     contract_size: float = 100.0  # XAUUSD: 1.0 lot = 100 troy oz

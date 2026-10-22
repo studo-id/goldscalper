@@ -35,6 +35,62 @@ Aturan singkat:
 
 ---
 
+## 2026-10-22 — Kalibrasi Aggressive Scalper Mode pada Instance 2 (Lab / uhe@7pivot.site)
+
+**Phase / Area:** Quantitative Strategy Tuning / Dynamic SR Relaxation / Multi-Instance Isolation  
+**Status:** Done & Active  
+
+**Yang dikerjakan**
+- **Analisa Akar Masalah Idle 2 Jam (Deadlock Evaluasi):**
+  - Mendiagnosis penyebab bot tidak entry selama 2 jam:
+    1. Deadlock antara `TF-D1-Macro` (`VETO_BUY`) vs `Tech-SupportResistance` (`VETO_SELL`).
+    2. Buffer `DYNAMIC DATA GATE` terlalu lebar (rasio 28% rentang = ~40 pips / $4.10) sehingga harga di dekat support memblokir seluruh SELL.
+    3. Batas breakdown extension statis ($1.20) memblokir SELL jika harga sudah menembus lantai > 12 pips.
+    4. Micro-exhaustion bounce memicu hard `VETO_SELL` pada pantulan mikro M1 tunggal.
+- **Implementasi Parameter Aggressive Terkonfigurasi (Settings-Driven):**
+  - Mengupdate `config/settings.py` dengan parameter default konservatif (agar Instance 1 tidak terpengaruh sama sekali) dan flag agresif:
+    - `aggressive_scalper: bool = False`
+    - `dynamic_sr_buffer_ratio: float = 0.28` (0.10 di mode agresif)
+    - `dynamic_sr_min_buffer: float = 1.80` ($0.60 di mode agresif)
+    - `dynamic_sr_max_buffer: float = 4.80` ($1.50 di mode agresif)
+    - `dynamic_sr_breakdown_ext_limit: float = 1.20` ($3.50 di mode agresif)
+    - `micro_sr_exhaustion_veto_enabled: bool = True` (False di mode agresif)
+- **Refaktor Komponen Eksekusi & Agen:**
+  - `execution/order_manager.py`: Memeriksa `is_aggressive` pada `_check_dynamic_sr_boundary`. Jika agresif, memperketat buffer S/R menjadi 6–15 pips, memperlebar toleransi breakdown extension ke $3.50, dan menaikkan ambang climax drop ke $15.00.
+  - `agents/divisions/technical/agents.py`: Pada `Tech-SupportResistance`, membungkus `MICRO_EXHAUSTION_BOUNCE` dengan guard `self.exhaustion_veto_enabled`, serta melonggarkan batas kelanjutan tren (`min_sr_dist = 0.50` dan `pos_limit = 0.15`) saat `self.aggressive` aktif.
+  - `spk/veto.py`: Mengizinkan demosi barrier sideway menjadi soft penalty saat `is_aggressive` aktif.
+- **Penerapan Eksklusif pada Instance 2 (Lab / Port 9091):**
+  - Instance 1 (`gs-bot`, Port 9090, `#184113188`) **100% TIDAK TERSENTUH / TIDAK DIRESTART** dan tetap berjalan pada mode konservatif murni (Uptime > 9 jam kontinu).
+  - Mengkonfigurasi `.env.lab` di VPS dengan:
+    - `AGGRESSIVE_SCALPER=true`
+    - `DYNAMIC_SR_BUFFER_RATIO=0.10`
+    - `DYNAMIC_SR_MIN_BUFFER=0.60`
+    - `DYNAMIC_SR_MAX_BUFFER=1.50`
+    - `DYNAMIC_SR_BREAKDOWN_EXT_LIMIT=3.50`
+    - `MICRO_SR_EXHAUSTION_VETO_ENABLED=false`
+    - `MICRO_SR_CONFIRM_RANGE_USD=0.50`
+    - `MIN_CONFIDENCE_FLOOR_NORMAL=0.20`
+  - Merecreate hanya container `gs-bot-lab` (`docker compose up -d --no-deps bot-lab`).
+- **Verifikasi Eksekusi Nyata:**
+  - `Tech-SupportResistance` langsung beralih dari memblokir ke voting `VOTE_SELL` dengan event `TREND_CONTINUATION_SELL`.
+  - SPK consensus langsung mengembalikan sinyal `Action: SELL`, `Confidence: 0.955`, `Score: -8.34`.
+  - Bot lab berhasil membuka trade baru pada MT5 ticket `#4317334397` (SELL 0.01 lot di 4113.739) tanpa deadlock.
+
+**File tersentuh**
+- `config/settings.py` — penambahan parameter dinamis agresif
+- `execution/order_manager.py` — relaksasi dynamic S/R buffer & breakdown extension
+- `agents/divisions/technical/agents.py` — guard micro-exhaustion & relaksasi batas swing S/R
+- `spk/veto.py` — demosi soft penalty sideway barrier pada mode agresif
+- `docs/PROGRESS.md` — pencatatan worklog kalibrasi agresif
+
+**Verifikasi**
+- `python -m pytest tests/test_technical_division.py tests/test_market_regime.py` → 31 passed
+- `python -m pytest tests/test_spk_veto.py tests/test_execution.py` → 65 passed
+- `docker ps` → `gs-bot` Port 9090 uptime 9+ jam (uninterrupted); `gs-bot-lab` Port 9091 running healthy.
+- `GET /api/trades` di port 9091 → Order live aktif `#4317334397` SELL 0.01 lot XAUUSDc.
+
+---
+
 ## 2026-10-22 — Deployment Instance 2 (Lab Cockpit Port 9091) Akun Cent Baru #184199028
 
 **Phase / Area:** Multi-Instance Deployment / Lab Isolation & Exness Account Splitting  

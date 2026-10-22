@@ -281,7 +281,8 @@ def evaluate(
                     or is_ping_pong
                     or (state and hasattr(state, "extra") and isinstance(state.extra, dict) and state.extra.get("sideways_range"))
                 )
-                if is_sideway and not can_demote_sideway_barrier:
+                is_aggressive = getattr(default_settings, "aggressive_scalper", False)
+                if is_sideway and not (can_demote_sideway_barrier or is_aggressive):
                     boundary_name = "SUPPORT FLOOR" if direction == ACTION_SELL else "RESISTANCE CEILING"
                     return VetoResult(
                         hard=True,

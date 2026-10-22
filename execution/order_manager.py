@@ -572,7 +572,12 @@ class OrderManager:
             else None
         )
 
-        if daily_pnl_pct < 0 or (rem_target is not None and 0 < rem_target <= 20.0):
+        is_aggressive = getattr(self.settings, "aggressive_scalper", False)
+        if is_aggressive:
+            min_b = float(getattr(self.settings, "dynamic_sr_min_buffer", 0.60))
+            max_b = float(getattr(self.settings, "dynamic_sr_max_buffer", 1.50))
+            ratio = float(getattr(self.settings, "dynamic_sr_buffer_ratio", 0.10))
+        elif daily_pnl_pct < 0 or (rem_target is not None and 0 < rem_target <= 20.0):
             # DEFENSE mode or Finish Line: wider buffer to keep safe distance from ceilings & floors
             min_b = 2.00
             max_b = 5.50
@@ -624,20 +629,22 @@ class OrderManager:
                 # --- TABAYUN & RETEST PROTOCOL: Anti-Chasing Climax Breakdown ---
                 # Even if M5 candle confirmed a breakdown below support, we MUST NOT chase the breakdown
                 # at an overextended low (e.g. selling at the bottom of a 150-pip climax run).
-                # Safe entry requires price to be near the retest zone of the broken support floor (within 12 pips).
+                # Safe entry requires price to be near the retest zone of the broken support floor (within buffer/limit).
                 breakdown_extension = cluster_support - entry
-                if breakdown_extension > 1.20:
+                ext_limit = float(getattr(self.settings, "dynamic_sr_breakdown_ext_limit", 1.20))
+                if breakdown_extension > ext_limit:
                     return (
                         True,
                         f"Blocked SELL chasing extended breakdown (${entry:.2f} is {breakdown_extension:.2f} USD below support ${cluster_support:.2f}). Tabayun: awaiting pullback/retest near broken floor.",
                     )
 
                 # Climax Run Check: If last 3 M5 candles are all red and dropped >= 8.00 USD without a pullback
+                climax_drop_threshold = 15.00 if is_aggressive else 8.00
                 if len(m5_bars) >= 4:
                     last_3_bars = m5_bars[-3:]
                     all_red_m5 = all(_val(b, "close") < _val(b, "open") for b in last_3_bars)
                     m5_cum_drop = _val(last_3_bars[0], "open") - entry
-                    if all_red_m5 and m5_cum_drop >= 8.00:
+                    if all_red_m5 and m5_cum_drop >= climax_drop_threshold:
                         return (
                             True,
                             f"Blocked SELL into climax exhaustion (${m5_cum_drop:.2f} USD drop across 3 M5 bars). Tabayun: awaiting retracement before trend continuation.",
@@ -666,20 +673,22 @@ class OrderManager:
                 # --- TABAYUN & RETEST PROTOCOL: Anti-Chasing Climax Breakout ---
                 # Even if M5 candle confirmed a breakout above resistance, we MUST NOT chase the breakout
                 # at an overextended peak (e.g. buying at the top of a 150-pip climax rally).
-                # Safe entry requires price to be near the retest zone of the broken resistance ceiling (within 12 pips).
+                # Safe entry requires price to be near the retest zone of the broken resistance ceiling (within buffer/limit).
                 breakout_extension = entry - cluster_resistance
-                if breakout_extension > 1.20:
+                ext_limit = float(getattr(self.settings, "dynamic_sr_breakdown_ext_limit", 1.20))
+                if breakout_extension > ext_limit:
                     return (
                         True,
                         f"Blocked BUY chasing extended breakout (${entry:.2f} is {breakout_extension:.2f} USD above resistance ${cluster_resistance:.2f}). Tabayun: awaiting pullback/retest near broken ceiling.",
                     )
 
                 # Climax Run Check: If last 3 M5 candles are all green and rallied >= 8.00 USD without a pullback
+                climax_rally_threshold = 15.00 if is_aggressive else 8.00
                 if len(m5_bars) >= 4:
                     last_3_bars = m5_bars[-3:]
                     all_green_m5 = all(_val(b, "close") > _val(b, "open") for b in last_3_bars)
                     m5_cum_rally = entry - _val(last_3_bars[0], "open")
-                    if all_green_m5 and m5_cum_rally >= 8.00:
+                    if all_green_m5 and m5_cum_rally >= climax_rally_threshold:
                         return (
                             True,
                             f"Blocked BUY into climax exhaustion (${m5_cum_rally:.2f} USD rally across 3 M5 bars). Tabayun: awaiting retracement before trend continuation.",
