@@ -76,6 +76,44 @@ services:
       - gs-net
       - aceng-net
 
+  bot-lab:
+    image: goldscalper:latest
+    container_name: gs-bot-lab
+    restart: always
+    env_file:
+      - .env.lab
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "9091"
+      DB_HOST: timescaledb
+      DB_PORT: "5432"
+      REDIS_HOST: redis
+      REDIS_PORT: "6380"
+    ports:
+      - "9091:9091"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9091/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./data:/app/data
+      - ./api:/app/api
+      - ./frontend:/app/frontend
+      - ./config:/app/config
+      - ./core:/app/core
+      - ./agents:/app/agents
+      - ./execution:/app/execution
+      - ./spk:/app/spk
+      - ./runtime.py:/app/runtime.py
+    networks:
+      - gs-net
+
   mt5:
     image: gmag11/metatrader5_vnc:latest
     container_name: gs-mt5

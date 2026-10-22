@@ -35,6 +35,41 @@ Aturan singkat:
 
 ---
 
+## 2026-10-22 — Deployment Instance 2 (Lab Cockpit Port 9091) Akun Cent Baru #184199028
+
+**Phase / Area:** Multi-Instance Deployment / Lab Isolation & Exness Account Splitting  
+**Status:** Done & Active  
+
+**Yang dikerjakan**
+- **Isolasi Zero-Interruption Akun Utama:**
+  - Akun lama (`#184113188`, saldo ~6,379 USC) di `gs-bot` (Port 9090) tetap berjalan kontinu 100% tanpa restart atau interupsi.
+- **Konfigurasi MT5 Wine Bridge Instance 2 (`gs-mt5`):**
+  - Mengupdate kredensial MT5 bridge `gs-mt5` ke login `#184199028` (Exness-MT5Real25, initial balance `1,108.00 USC`).
+  - Mengaktifkan Algo Trading (`[Experts] Enabled=1`) dan menyelaraskan `config.py` bridge untuk dukungan Cent Account (`is_cent_account: bool = True`).
+  - Mendaftarkan simbol `XAUUSDc` ke Market Watch terminal MT5 via script IPC `symbol_select("XAUUSDc", True)`.
+  - Memverifikasi endpoint bridge: `/account` (`trade_allowed: true`, balance: 1108.0 USC), `/tick`, dan `/rates` (live M1 feed).
+- **Setup Database & Redis Instance 2:**
+  - Membuat database terisolasi `goldscalper_lab` di TimescaleDB (`gs-timescaledb` pg16) lengkap dengan extension `timescaledb` dan `pgcrypto`.
+  - Mengisolasi Redis cache ke database index `REDIS_DB=1`.
+- **Deployment Container `gs-bot-lab` (Port 9091):**
+  - Membuat konfigurasi `.env.lab` dengan port 9091, DB `goldscalper_lab`, Magic Number `990002` (terpisah dari 990001), dan bridge `http://gs-mt5:9095`.
+  - Menambahkan service `bot-lab` di `docker-compose.yml` dengan healthcheck mandiri pada port 9091.
+  - Menjalankan container `gs-bot-lab` via `docker compose up -d bot-lab`.
+- **Verifikasi UI Cockpit & Autentikasi:**
+  - Mendaftarkan user admin lab baru di endpoint `/api/auth/register`.
+  - Memverifikasi endpoint `/api/performance` membaca saldo awal tepat `1,108.00 USC`.
+
+**File tersentuh**
+- `docker-compose.yml` — Menambahkan service `bot-lab` (port 9091, `.env.lab`, healthcheck 9091).
+- `docs/PROGRESS.md` — Dokumentasi kronologis deployment multi-instance.
+
+**Verifikasi**
+- `docker ps --filter name=gs-` → `gs-bot` (Up 9 hours, healthy, port 9090) & `gs-bot-lab` (Up, healthy, port 9091).
+- `curl http://localhost:9091/health` → `{"status":"ok","service":"GoldScalperLab","environment":"production","version":"0.1.0"}`
+- `curl http://localhost:9091/api/performance` → `"base_equity": 1108.0`, `"final_equity": 1108.0`, `"currency": "USC"`.
+
+---
+
 ## 2026-10-22 — Review Transaksi Sesi Dini Hari & Observasi Live Trading 24 Jam Akun Cent
 
 **Phase / Area:** Phase 14 / Live Production Observation & Micro-Scalping Review  
