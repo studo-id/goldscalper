@@ -97,25 +97,29 @@ def evaluate(
 
     h1_bear = False
     if h1_sig is not None:
-        h1_bear = (h1_sig.vote < 0 or h1_sig.veto == VETO_BUY or "BEARISH" in (h1_sig.reasoning or "").upper())
+        h1_bear = (h1_sig.vote < 0 or "BEARISH" in (h1_sig.reasoning or "").upper())
     elif state and state.flag("h1_vote") is not None and state.flag("h1_vote") < 0:
         h1_bear = True
 
     d1_bear = False
     if d1_sig is not None:
-        d1_bear = (d1_sig.vote < 0 or d1_sig.veto == VETO_BUY or "BEARISH" in (d1_sig.reasoning or "").upper())
+        d1_bear = (d1_sig.vote < 0 or "BEARISH" in (d1_sig.reasoning or "").upper())
 
     macro_bearish = h1_bear and d1_bear
 
     h1_bull = False
     if h1_sig is not None:
-        h1_bull = (h1_sig.vote > 0 or h1_sig.veto == VETO_SELL or "BULLISH" in (h1_sig.reasoning or "").upper())
+        h1_bull = (h1_sig.vote > 0 or "BULLISH" in (h1_sig.reasoning or "").upper())
+        if "BEARISH" in (h1_sig.reasoning or "").upper():
+            h1_bull = False
     elif state and state.flag("h1_vote") is not None and state.flag("h1_vote") > 0:
         h1_bull = True
 
     d1_bull = False
     if d1_sig is not None:
-        d1_bull = (d1_sig.vote > 0 or d1_sig.veto == VETO_SELL or "BULLISH" in (d1_sig.reasoning or "").upper())
+        d1_bull = (d1_sig.vote > 0 or "BULLISH" in (d1_sig.reasoning or "").upper())
+        if "BEARISH" in (d1_sig.reasoning or "").upper():
+            d1_bull = False
 
     macro_bullish = h1_bull and d1_bull
 
@@ -298,6 +302,54 @@ def evaluate(
             result.confidence_delta -= min(0.35, round(opposing_htf * 0.15, 2))
             result.notes.append(f"Counter-trend SELL penalized against opposing HTF (score=+{htf_score:.2f})")
 
+    market_regime = state.extra.get("market_regime") if (state and hasattr(state, "extra") and isinstance(state.extra, dict)) else None
+
+    # Pre-compute SPK consensus and confluence across all agents
+    spk_confluence_count = sum(
+        1 for s in signals
+        if (s.vote > 0 if direction == ACTION_BUY else s.vote < 0)
+    )
+    spk_opposing_count = sum(
+        1 for s in signals
+        if (s.vote < 0 if direction == ACTION_BUY else s.vote > 0)
+    )
+    has_clear_consensus = (
+        spk_confluence_count >= 5
+        and spk_confluence_count > spk_opposing_count
+    )
+    has_sniper_active = any(
+        s.agent_id == "TF-M1-Sniper"
+        and (s.vote > 0 if direction == ACTION_BUY else s.vote < 0)
+        and (s.confidence or 0.0) >= 0.60
+        for s in signals
+    )
+    confirming_divisions = {
+        s.division for s in signals
+        if (s.vote > 0 if direction == ACTION_BUY else s.vote < 0)
+    }
+    has_waterfall = any(
+        "waterfall" in (s.reasoning or "").lower()
+        for s in signals
+        if (s.vote > 0 if direction == ACTION_BUY else s.vote < 0)
+    )
+    has_multi_division_breakout = (
+        len(confirming_divisions) >= 3
+        and spk_confluence_count >= 5
+        and spk_confluence_count >= 2 * spk_opposing_count
+    )
+    has_watchdog_breakout = any(
+        s.agent_id in ("TF-M5-Inspector", "Struct-MarketStructure", "Tech-Trend")
+        and (s.vote > 0 if direction == ACTION_BUY else s.vote < 0)
+        and any(kw in (s.reasoning or "").lower() for kw in ("breakout", "break of structure", "uptrend", "downtrend", "bos", "impulse"))
+        for s in signals
+    )
+    can_demote_sideway_barrier = (
+        has_sniper_active
+        or has_waterfall
+        or has_multi_division_breakout
+        or has_watchdog_breakout
+    )
+
     for sig in signals:
         if sig.veto in (blocking_flag, VETO_ALL):
             if sig.veto == VETO_ALL:
@@ -333,54 +385,6 @@ def evaluate(
                     state.extra["active_sr_barrier"] = barrier_type
                     state.extra["active_sr_barrier_agent"] = sig.agent_id
                     state.extra["active_sr_barrier_reason"] = sig.reasoning
-
-                market_regime = state.extra.get("market_regime") if (state and hasattr(state, "extra") and isinstance(state.extra, dict)) else None
-
-                # Count confluence & sniper triggers first
-                spk_confluence_count = sum(
-                    1 for s in signals
-                    if (s.vote > 0 if direction == ACTION_BUY else s.vote < 0)
-                )
-                spk_opposing_count = sum(
-                    1 for s in signals
-                    if (s.vote < 0 if direction == ACTION_BUY else s.vote > 0)
-                )
-                has_clear_consensus = (
-                    spk_confluence_count >= 5
-                    and spk_confluence_count > spk_opposing_count
-                )
-                has_sniper_active = any(
-                    s.agent_id == "TF-M1-Sniper"
-                    and (s.vote < 0 if direction == ACTION_SELL else s.vote > 0)
-                    and (s.confidence or 0.0) >= 0.60
-                    for s in signals
-                )
-                confirming_divisions = {
-                    s.division for s in signals
-                    if (s.vote < 0 if direction == ACTION_SELL else s.vote > 0)
-                }
-                has_waterfall = any(
-                    "waterfall" in (s.reasoning or "").lower()
-                    for s in signals
-                    if (s.vote < 0 if direction == ACTION_SELL else s.vote > 0)
-                )
-                has_multi_division_breakout = (
-                    len(confirming_divisions) >= 3
-                    and spk_confluence_count >= 5
-                    and spk_confluence_count >= 2 * spk_opposing_count
-                )
-                has_watchdog_breakout = any(
-                    s.agent_id in ("TF-M5-Inspector", "Struct-MarketStructure", "Tech-Trend")
-                    and (s.vote < 0 if direction == ACTION_SELL else s.vote > 0)
-                    and any(kw in (s.reasoning or "").lower() for kw in ("breakout", "break of structure", "uptrend", "downtrend", "bos", "impulse"))
-                    for s in signals
-                )
-                can_demote_sideway_barrier = (
-                    has_sniper_active
-                    or has_waterfall
-                    or has_multi_division_breakout
-                    or has_watchdog_breakout
-                )
 
                 # 1. CRITICAL ANTI-SUICIDE IN SIDEWAY REGIMES (Anti-Pucuk & Anti-Lembah):
                 # In a SIDEWAY / range-bound market, S/R boundaries are BOUNCE WALLS, NOT breakout corridors!
@@ -509,9 +513,21 @@ def evaluate(
             # 1. During sideways/ping-pong conditions, HTF deadlock, or for analysis conflicts:
             # demote directional vetoes to soft confidence penalties so 37-agent consensus can scalp.
             if is_analysis_agent and (htf_deadlock or is_ping_pong or sideways_mode):
-                result.confidence_delta -= p.htf_conflict_penalty
+                # If this is H1 acting as a solo outlier while majority HTF agrees with trade direction:
+                if (
+                    sig.agent_id == "TF-H1-Regime"
+                    and ((direction == ACTION_SELL and is_h1_solo_opposing_sell) or (direction == ACTION_BUY and is_h1_solo_opposing_buy))
+                ):
+                    result.confidence_delta -= 0.05
+                    result.notes.append(
+                        "Solo outlier H1 veto softened to minimal penalty (-0.05) by majority HTF agreement"
+                    )
+                    continue
+
+                analysis_penalty = 0.10 if (has_clear_consensus or is_growth) else p.htf_conflict_penalty
+                result.confidence_delta -= analysis_penalty
                 result.notes.append(
-                    f"Analysis veto demoted to soft penalty for sideways/ping-pong ({sig.agent_id}:{sig.veto})"
+                    f"Analysis veto demoted to soft penalty (-{analysis_penalty:.2f}) for sideways/ping-pong ({sig.agent_id}:{sig.veto})"
                 )
                 continue
 
@@ -660,9 +676,13 @@ def evaluate(
     pnl_penalty_mult = min(1.50, 1.0 + abs(daily_pnl_pct) / 12.0) if daily_pnl_pct < 0 else 1.0
 
     h1_vote = state.flag("h1_vote")
+    is_solo_outlier_h1 = (direction == ACTION_SELL and is_h1_solo_opposing_sell) or (direction == ACTION_BUY and is_h1_solo_opposing_buy)
     htf_against = (
-        (direction == ACTION_BUY and h1_vote is not None and h1_vote < 0)
-        or (direction == ACTION_SELL and h1_vote is not None and h1_vote > 0)
+        not is_solo_outlier_h1
+        and (
+            (direction == ACTION_BUY and h1_vote is not None and h1_vote < 0)
+            or (direction == ACTION_SELL and h1_vote is not None and h1_vote > 0)
+        )
     )
     if htf_against:
         htf_penalty = round(p.htf_conflict_penalty * pnl_penalty_mult, 4)
@@ -690,5 +710,16 @@ def evaluate(
             result.confidence_delta -= 0.15
             result.notes.append(f"finish line spread caution ({state.spread_points}pt)")
 
-    result.confidence_delta = round(max(-1.0, result.confidence_delta), 4)
+    # Dynamic Plafon Penalti: Cap total cumulative soft penalty drag so valid multi-agent consensus is never zeroed out!
+    # In normal conditions (spread and liquidity within limits):
+    # - In DEFENSE mode (drawdown), allow up to -0.35 max penalty.
+    # - In GROWTH / BALANCED mode, cap cumulative soft penalties at -0.20 max penalty!
+    # If external microstructure danger is detected (wide spread / low liquidity), allow full accumulation up to -1.0.
+    spread_ok = (state.spread_points is None or state.spread_points <= p.max_spread_points)
+    liq_ok = not state.is_low_liquidity()
+    if spread_ok and liq_ok:
+        max_penalty_drag = -0.35 if daily_pnl_pct < 0.0 else -0.20
+        result.confidence_delta = round(max(max_penalty_drag, result.confidence_delta), 4)
+    else:
+        result.confidence_delta = round(max(-1.0, result.confidence_delta), 4)
     return result

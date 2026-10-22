@@ -35,6 +35,31 @@ Aturan singkat:
 
 ---
 
+## 2026-10-22 — Dynamic Soft Penalty Drag Capping & Macro Trend Logic Fix in SPK Veto
+
+**Phase / Area:** SPK Veto Engine / Precision Scalping / Confidence Preservation  
+**Status:** Done & Deployed  
+
+**Yang dikerjakan**
+- **Forensik & Perbaikan Root Cause Missing Entry di Pucuk Resistance ($4,052.60):**
+  - SPK telah sepakat SELL dengan kekuatan `STRONG`, skor `-7.0898` (Sell score 9.96 vs Buy score 2.87, 12 confirming agents) di pucuk M1 resistance (position_pct: 72.4%).
+  - Namun trade dibatalkan oleh `HARD VETO: LOW CONFIDENCE: 0.00 < 0.20` akibat akumulasi penalti soft indikator internal yang menenggelamkan confidence hingga 0.00.
+  - *Bug 1 (False Macro Bullish):* Di `spk/veto.py`, `d1_sig.veto == VETO_SELL` (status EXTREME_DISCOUNT) keliru diklasifikasikan sebagai `d1_bull = True`. Akibatnya, pada hari bearish, bot justru menganggap tren makro bullish dan memberikan penalti counter-trend palsu `-0.40` pada posisi SELL yang sah!
+  - *Bug 2 (Uncapped Penalty Stacking):* Tiga agent analisis yang didemosi di sideways/ping-pong masing-masing mengenakan penalti `-0.30` sebelum mencapai pengecualian solo outlier H1, menyebabkan total penalti mencapai `-1.25`.
+  - *Bug 3 (Unlimited Drag):* Penalti soft kumulatif diizinkan menguras delta hingga `-1.00`, melumpuhkan konsensus multi-agent yang sah sekalipun spread dan likuiditas pasar normal.
+- **Implementasi Solusi:**
+  - Memperbaiki deteksi tren D1 & H1 agar hanya membaca `BULLISH` jika reasoning benar-benar bullish dan tidak mengandung kata `BEARISH`.
+  - Menempatkan pengecualian solo outlier H1 (`-0.05`) di baris teratas blok penanganan sideways/ping-pong, serta menurunkan penalti demosi analisis ke `0.10` jika konsensus SPK / mode growth aktif.
+  - Memasang **Dynamic Plafon Penalti**: Pada kondisi spread dan likuiditas normal, total penalti soft kumulatif dibatasi maksimal `-0.20` (Growth/Balanced) dan `-0.35` (Defense), sehingga confidence consensus ($0.60 - 0.65$) tetap terjaga di $0.40 - 0.45 \ge 0.20$.
+
+**File tersentuh**
+- `spk/veto.py` — Deteksi tren makro akurat, solo outlier H1 prioritas, pre-compute SPK consensus, dan dynamic soft penalty cap
+- `tests/test_timeframe_division.py` — Penyesuaian test fixture zone D1 dan modern de-escalation HTF
+- `docs/PROGRESS.md` — Pencatatan progress sinkronisasi
+
+**Verifikasi**
+- `pytest tests/test_spk_veto.py tests/test_technical_division.py tests/test_execution.py tests/test_wave_engine.py tests/test_structural_guard.py tests/test_structure_division.py tests/test_timeframe_division.py tests/test_spk_voting.py -q` → 162 passed in 1.45s (100% green).
+
 ## 2026-10-22 — Configurable Agent Weighting & Scalper Dominance Calibration (Akun 2 Lab)
 
 **Phase / Area:** SPK Consensus / Agent Weights / Account-Specific Calibration  

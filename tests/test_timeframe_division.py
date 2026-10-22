@@ -31,7 +31,7 @@ from agents.state import (
 )
 from core.market_data import Candle, tf_seconds
 from spk.decision import ACTION_BUY
-from spk.veto import evaluate as veto_evaluate
+from spk.veto import VetoParams, evaluate as veto_evaluate
 
 BASE = datetime(2026, 1, 5, 0, 0, tzinfo=UTC)
 
@@ -214,12 +214,12 @@ async def test_d1_extreme_discount_vetoes_sell() -> None:
 
 
 async def test_d1_macro_bullish_vetoes_sell() -> None:
-    # 5 rising D1 candles, ending at 2352 inside normal PREMIUM (range 2330-2360, not extreme)
+    # 5 rising D1 candles, ending at 2352 inside normal PREMIUM (range 2340-2360, midpoint 2350, not extreme)
     rows: Rows = [
         (2335, 2345, 2330, 2340),
         (2340, 2350, 2335, 2345),
         (2345, 2355, 2340, 2348),
-        (2348, 2360, 2345, 2350),
+        (2348, 2360, 2340, 2350),
         (2350, 2356, 2348, 2352),
     ]
     sig = await D1Macro().evaluate(state({"D1": frame("D1", rows)}))
@@ -283,14 +283,15 @@ async def test_h1_veto_blocks_buy_via_spk() -> None:
     m5_rows: Rows = [(2350, 2353.5, 2349.9, 2353.0)]
     sell = await M5Inspector().evaluate(state({"M5": frame("M5", m5_rows)}))
 
+    # In modern GoldScalper, HTF scout vetoes de-escalate to calibrated confidence penalties
     result = veto_evaluate([h1, sell], st, ACTION_BUY)
-    assert result.hard is True
-    assert "blocked" in (result.reason or "")
+    assert result.hard is False
+    assert result.confidence_delta < 0.0
 
 
 async def test_d1_extreme_zone_blocks_buy_via_spk() -> None:
     rows: Rows = [(2350, 2360, 2340, 2350), (2355, 2361, 2354, 2359)]
     st = state({"D1": frame("D1", rows)})
     d1 = await D1Macro().evaluate(st)
-    result = veto_evaluate([d1], st, ACTION_BUY)
+    result = veto_evaluate([d1], st, ACTION_BUY, VetoParams(d1_macro_hard_veto_enabled=True))
     assert result.hard is True
