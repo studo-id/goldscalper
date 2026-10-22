@@ -35,6 +35,38 @@ Aturan singkat:
 
 ---
 
+## 2026-10-22 — Kesadaran Posisi Dinamis (In-Flight Position Awareness & Pips-Based Clamping Akun 2)
+
+**Phase / Area:** In-Flight Position Management / Catastrophic Gap Calibration / Payoff Asymmetry Fix  
+**Status:** Done & Active  
+
+**Yang dikerjakan**
+- **Diagnosis Live Transaksi Akun 2 Pasca Update (38 Menit Pertama):**
+  - Mengaudit 6 closed trades di Akun 2: Lot Grade A+ berhasil melompat ke 0.05 lot (berhasil lepas dari 0.01 statik).
+  - Namun terdeteksi dua masalah asimetri:
+    1. *Catastrophic Gap Cut* terlalu sensitif pada lot 0.05 ($5.91 = hanya 11.8 pips), memotong posisi dalam 11 detik karena mengira terjadi bencana padahal itu gocekan normal lilin M1.
+    2. *Stagnant Trade Harvest* memotong trade menang terlalu cepat pada $+5.6$ pips ($+2.80$ USC), padahal potensi runner bisa $+15$ s/d $+20$ USC.
+- **Implementasi In-Flight Position Awareness di `execution/position_manager.py`:**
+  - **Catastrophic Gap Berbasis Pips:**
+    - Pada mode agresif (`aggressive_scalper = True` / Akun 2), batas flash crash disesuaikan ke pips riil: $\ge 28$ pips saat `HTF_SUPPORTING` dan $\ge 20$ pips saat `HTF_OPPOSING`.
+    - Pada lot 0.05, ambang flash crash menjadi $\$14.00$ USC (28 pips), memberi nafas penuh 60 detik bagi pembentukan candle M1 tanpa terkena cutloss palsu dalam 10 detik.
+  - **Stagnant Trade Harvest Berbasis Pips:**
+    - Batas panen profit stagnan dinaikkan proporsional ke volume: $\max(2.50, 12 \text{ pips} \times \text{pip\_value})$.
+    - Pada lot 0.05, minimal panen naik dari $\$2.50$ (5 pips) menjadi minimal $\$6.00$ (12 pips), dan sepenuhnya di-bypass jika `HTF_SUPPORTING` agar posisi dapat melaju ke Take Profit runner penuh (25–40 pips).
+  - **Isolasi Terjaga:**
+    - Logika baru diikat oleh flag `aggressive_scalper`, sehingga Akun 2 mendapatkan akselerasi penuh sementara Akun 1 (`gs-bot`) tetap stabil pada baseline standar.
+
+**File tersentuh**
+- `execution/position_manager.py` — Catastrophic gap pips-based scaling, stagnant harvest volume-based scaling, HTF supporting awareness.
+- `tests/test_execution.py` — Menambahkan `test_position_manager_aggressive_scalper_position_awareness`.
+- `docs/PROGRESS.md` — Pencatatan progress kronologis.
+
+**Verifikasi**
+- `pytest tests/test_execution.py` → 30 passed in 0.29s.
+- `pytest tests/test_execution.py tests/test_risk_division.py` → 63 passed in 0.33s.
+
+---
+
 ## 2026-10-22 — Kalibrasi Asimetri Risiko, Loss Clamp & Break-Even Akun 1 (gs-bot)
 
 **Phase / Area:** Core Account Risk Tuning / Payoff Asymmetry / Loss Clamp Optimization  

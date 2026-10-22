@@ -312,21 +312,29 @@ class PositionManager:
 
             # 2. Phase 0: Noise & M1 Candle Formation Grace Period (0 - 60s)
             # Strictly PROTECT unclosed M1 candle wicks (< 60s). Allow Rescue Layer 2 (>= 20 pips) to operate!
-            # Tightened catastrophic gap: strictly max_clamp_ceiling * 1.25 to prevent -$16 runaway outlier!
+            # Catastrophic gap represents genuine flash crash (>= 28 pips if HTF supporting, >= 20 pips otherwise)
             min_hold = getattr(s, "watchdog_min_hold_seconds", 60)
-            catastrophic_gap_usd = round(max_clamp_ceiling * 1.25, 2)
+            is_htf_supporting = htf_bias.get("verdict") in ("SUPPORTING", "HTF_SUPPORTING")
+            if getattr(s, "aggressive_scalper", False):
+                gap_pips = 28.0 if is_htf_supporting else 20.0
+                pip_val = float(pos.volume * 10.0)
+                catastrophic_gap_usd = max(round(max_clamp_ceiling * 1.50, 2), round(gap_pips * pip_val, 2))
+            else:
+                catastrophic_gap_usd = round(max_clamp_ceiling * 1.25, 2)
+
             if held < min_hold and current_loss > -catastrophic_gap_usd:
                 pass  # Grace period: allow 1 full M1 candle (60s) to form cleanly without wick panic
 
             elif held < min_hold and current_loss <= -catastrophic_gap_usd:
                 log.warning(
-                    "JUGGLER CATASTROPHIC GAP CUT: Cutting ticket %s (%s %.2f, loss=%.2f <= -$%.2f flash breach within %ds)",
+                    "JUGGLER CATASTROPHIC GAP CUT: Cutting ticket %s (%s %.2f, loss=%.2f <= -$%.2f flash breach within %ds, HTF=%s)",
                     pos.ticket,
                     pos.side,
                     pos.volume,
                     current_loss,
                     catastrophic_gap_usd,
                     int(held),
+                    htf_bias.get("verdict", "NEUTRAL"),
                 )
                 await self.client.close_position(pos.ticket, price=price)
                 self.untrack(pos.ticket)
@@ -563,21 +571,28 @@ class PositionManager:
             should_harvest = False
             harvest_reason = ""
             # Don't cut trades if HTF is supporting our direction — let trend develop
-            min_stagnant_profit = max(2.50, s.stagnant_min_profit_usd)
+            if getattr(s, "aggressive_scalper", False):
+                pip_val = float(pos.volume * 10.0)
+                min_stagnant_profit = max(2.50, round(12.0 * pip_val, 2), s.stagnant_min_profit_usd)
+                time_decay_profit = max(2.00, round(8.0 * pip_val, 2))
+            else:
+                min_stagnant_profit = max(2.50, s.stagnant_min_profit_usd)
+                time_decay_profit = 2.00
+
             if (
                 held >= s.stagnant_harvest_seconds
                 and current_profit >= min_stagnant_profit
                 and htf_bias["verdict"] != "HTF_SUPPORTING"
             ):
                 should_harvest = True
-                harvest_reason = f"stagnant profit (held {int(held)}s, pnl=+${current_profit:.2f} >= ${min_stagnant_profit:.2f})"
+                harvest_reason = f"stagnant profit (held {int(held)}s, pnl=+${current_profit:.2f} >= ${min_stagnant_profit:.2f}, htf={htf_bias['verdict']})"
             elif (
                 held >= s.stagnant_time_decay_seconds
-                and current_profit >= 2.00
+                and current_profit >= time_decay_profit
                 and htf_bias["verdict"] != "HTF_SUPPORTING"
             ):
                 should_harvest = True
-                harvest_reason = f"time-decay salvage (held {int(held)}s, pnl=+${current_profit:.2f} >= $2.00)"
+                harvest_reason = f"time-decay salvage (held {int(held)}s, pnl=+${current_profit:.2f} >= ${time_decay_profit:.2f}, htf={htf_bias['verdict']})"
 
             if should_harvest:
                 log.info(

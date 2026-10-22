@@ -705,3 +705,33 @@ async def test_order_manager_sr_boundary_blocks_without_confirmed_breakout() -> 
     assert "Tabayun" in reason_climax
 
 
+async def test_position_manager_aggressive_scalper_position_awareness() -> None:
+    from config.settings import Settings
+    client = MockMT5Client()
+    s_agg = Settings(
+        aggressive_scalper=True,
+        hard_loss_clamp_usd=3.50,
+        stagnant_min_profit_usd=2.50,
+        stagnant_harvest_seconds=120,
+    )
+    pm = PositionManager(client=client, settings=s_agg)
+    pos = await _open_position(client, sl=2335.0, volume=0.05)
+    pm.track(pos)
+
+    # 1. Intra-candle noise at 20s (held < 60s) with 12 pips loss (-$6.00) on 0.05 lot:
+    # Must NOT trigger catastrophic gap cut!
+    now = utcnow()
+    pm._states[pos.ticket].opened_at = now - timedelta(seconds=20)
+    pos.profit = -6.00
+    actions_noise = await pm.manage(pos, price=2349.0, now=now)
+    assert "juggler_catastrophic_gap_cut" not in actions_noise
+    assert len(await client.positions("XAUUSD")) == 1
+
+    # 2. Genuine flash gap spike (-$15.00 = 30 pips): triggers catastrophic gap cut!
+    pos.profit = -15.00
+    actions_gap = await pm.manage(pos, price=2348.0, now=now)
+    assert "juggler_catastrophic_gap_cut" in actions_gap
+    assert await client.positions("XAUUSD") == []
+
+
+
