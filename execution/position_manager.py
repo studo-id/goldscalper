@@ -311,13 +311,13 @@ class PositionManager:
                     log.warning("StructuralGuard evaluation failed for ticket %s: %s", pos.ticket, exc)
 
             # 2. Phase 0: Noise & M1 Candle Formation Grace Period (0 - 60s)
-            # Strictly PROTECT unclosed M1 candle wicks (< 60s). Allow Rescue Layer 2 (>= 20 pips) to operate!
-            # Catastrophic gap represents genuine flash crash (>= 28 pips if HTF supporting, >= 20 pips otherwise)
+            # Catastrophic gap represents genuine flash crash, strictly capped to prevent $17-$18 flash bleed
             min_hold = getattr(s, "watchdog_min_hold_seconds", 60)
             is_htf_supporting = htf_bias.get("verdict") in ("SUPPORTING", "HTF_SUPPORTING")
             gap_pips = 28.0 if is_htf_supporting else 20.0
             pip_val = float(pos.volume * 10.0)
-            catastrophic_gap_usd = max(round(max_clamp_ceiling * 1.50, 2), round(gap_pips * pip_val, 2))
+            catastrophic_gap_ceiling = round(max_clamp_ceiling * 1.40, 2)
+            catastrophic_gap_usd = min(catastrophic_gap_ceiling, max(round(max_clamp_ceiling * 1.15, 2), round(gap_pips * pip_val, 2)))
 
             if held < min_hold and current_loss > -catastrophic_gap_usd:
                 pass  # Grace period: allow 1 full M1 candle (60s) to form cleanly without wick panic
@@ -407,8 +407,8 @@ class PositionManager:
                 if is_in_rescue_basket:
                     pass  # Collective basket management takes precedence
                 else:
-                    htf_reversal_clamp = max(16.0, round(effective_clamp_usd * 2.25, 2), round(pos.volume * 3.50 * 100.0, 2))
-                    reversal_clamp = htf_reversal_clamp if is_htf_supporting else round(effective_clamp_usd * 1.40, 2)
+                    htf_reversal_clamp = round(min(max_clamp_ceiling * 1.85, max(12.0, effective_clamp_usd * 1.75)), 2)
+                    reversal_clamp = htf_reversal_clamp if is_htf_supporting else round(effective_clamp_usd * 1.25, 2)
                     is_structure_holding = (structural_eval is not None and not structural_eval.is_breached)
                     is_m5_supporting = watchdogs.get("m5", {}).get("verdict") in ("SUPPORTING", "HTF_SUPPORTING")
                     can_reversal_hold = is_structure_holding or is_htf_supporting or (is_m5_supporting and held < 90)

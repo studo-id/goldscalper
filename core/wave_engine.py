@@ -114,6 +114,7 @@ class DataDrivenWaveEngine:
         is_win: bool,
         direction: str,
         timestamp: float | None = None,
+        cooldown_seconds: int | None = None,
     ) -> None:
         """Record trade completion and manage broken wave invalidation."""
         now = timestamp if timestamp is not None else time.time()
@@ -123,17 +124,18 @@ class DataDrivenWaveEngine:
         if is_win:
             log.info("WAVE ENGINE: Trade in %s wave won (Chain #%d). Wave intact.", dir_norm, self.chain_count)
         else:
-            # Broken wave! Arm smart 90s cooldown specifically for this direction
+            cd_s = cooldown_seconds if cooldown_seconds is not None else self.broken_wave_cooldown_s
+            cd_s = max(self.broken_wave_cooldown_s, cd_s)
             self.broken_direction = dir_norm
-            self.broken_cooldown_until = now + self.broken_wave_cooldown_s
+            self.broken_cooldown_until = now + cd_s
             self.current_direction = None
             self.origin_price = None
             self.chain_count = 0
             log.warning(
                 "WAVE ENGINE: Gelombang %s patah (cutloss)! Mengaktifkan Smart Cooldown %ds (sampai +%ds) khusus arah %s.",
                 dir_norm,
-                self.broken_wave_cooldown_s,
-                self.broken_wave_cooldown_s,
+                cd_s,
+                cd_s,
                 dir_norm,
             )
 

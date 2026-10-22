@@ -35,7 +35,46 @@ Aturan singkat:
 
 ---
 
-## 2026-10-23 — Frontend UI Indonesian Localization: SPK Consensus & Veto Explanations
+## 2026-10-23 — Dynamic Loss-Proportional Cooldown & Clamp Ceiling Bounding Deployment (Akun 1 & Akun 2)
+
+**Phase / Area:** Execution Engine & Risk Division / Dynamic Cooldown & Clamp Protection  
+**Status:** Done & Deployed (Akun 1 `gs-bot` & Akun 2 `gs-bot-lab`)  
+
+**Yang dikerjakan**
+- **Forensik Double-Hit Loss & Celah Plafon Cut Loss:**
+  - Terjadi insiden kerugian beruntun pada Akun 1 (`-$17.10` di 17:15:40 dan `-$18.70` di 17:18:05) dan Akun 2 (`-$17.40` di 17:17:48).
+  - Ditemukan jeda (cooldown) pasca cutloss sebelumnya hanya 1 candle M1 (~79 detik), sehingga 11 detik setelah jeda selesai, bot langsung membuka kembali posisi SELL di tengah rally impulsif emas yang belum reda.
+  - Ditemukan hardcode `max(16.0, ...)` di Phase 3 `position_manager.py` dan formula gap Phase 0 tanpa batas atas yang membiarkan floating loss membengkak hingga -$18.70 (rasio 1:5 risk:reward buruk).
+- **Implementasi Cooldown Dinamis Berbasis Detik & Average Win:**
+  - Menghitung durasi jeda secara proporsional terhadap besaran kerugian riil dibandingkan dengan `live_avg_win`:
+    $$ratio = \frac{|\text{loss\_usd}|}{\max(1.50, \text{live\_avg\_win})}$$
+    $$\text{cooldown\_seconds} = \max(60, \min(300, \text{round}(60.0 \times ratio)))$$
+  - *Normal Loss ($\le 1.0\times$):* 60 detik (1 candle M1).
+  - *Normal Upper (1.5×):* 90 detik.
+  - *Medium Loss (2.0×):* 120 detik.
+  - *Significant Loss (3.0×):* 180 detik (3 candle M1).
+  - *Catastrophic / Gap Loss ($\ge 5.0\times$):* Dibatasi maksimal 300 detik (5 candle M1 / 5 menit).
+- **Penguncian Plafon Cut Loss di `position_manager.py`:**
+  - Menghapus hardcode `max(16.0, ...)` di Phase 3 Dynamic Clamp; mengikat plafon pembalikan ke `max_clamp_ceiling * 1.85`.
+  - Mengunci Phase 0 Catastrophic Gap ke `max_clamp_ceiling * 1.40`, mencegah floating loss membengkak di detik-detik awal.
+- **Dukungan Directional Wave Cooldown di `core/wave_engine.py`:**
+  - `record_trade_closed` kini menerima `cooldown_seconds` dinamis untuk memblokir arah yang kalah selama masa jeda penuh.
+- **Penyelarasan & Deploy Kedua Akun (`gs-bot` & `gs-bot-lab`):**
+  - Mengirim file `core/wave_engine.py`, `execution/position_manager.py`, `runtime.py`, dan `docs/PROGRESS.md` ke VPS.
+  - Me-restart kedua container bot.
+
+**File tersentuh**
+- `core/wave_engine.py` — Parameter `cooldown_seconds` dinamis pada `record_trade_closed()`
+- `execution/position_manager.py` — Penguncian plafon catastrophic gap dan dynamic reversal clamp
+- `runtime.py` — Fungsi `compute_cutloss_cooldown()` dan integrasi ke manajemen eksekusi
+- `tests/test_execution.py` — Unit test `test_dynamic_cutloss_cooldown_proportional_to_loss`
+- `docs/PROGRESS.md` — Dokumentasi kronologis insiden dan resolusi
+
+**Verifikasi**
+- `pytest tests/test_execution.py -k test_dynamic_cutloss_cooldown_proportional_to_loss` → 1 passed
+- Full suite (209 unit tests across 10 modules) → 209 passed (100% green)
+
+
 
 **Phase / Area:** Frontend Cockpit UI / Localization & UX Polish  
 **Status:** Done & Deployed (Akun 1 `gs-bot` & Akun 2 `gs-bot-lab`)  

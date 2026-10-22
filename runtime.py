@@ -505,7 +505,14 @@ class Runtime:
                         context=ticket_ctx,
                     )
                     if any("clamp" in a or "cut" in a for a in act):
-                        self.order_manager.arm_m1_candle_cooldown(60, reason="post_cutloss_clamp")
+                        loss_val = abs(float(pos.profit or 0.0))
+                        cd_s, avg_w, ratio = self.compute_cutloss_cooldown(loss_val)
+                        side_dir = str(getattr(pos, "side", "") or ("BUY" if getattr(pos, "is_long", False) else "SELL")).upper()
+                        self.order_manager.arm_m1_candle_cooldown(
+                            cd_s,
+                            reason=f"post_cutloss_clamp (loss=-${loss_val:.2f}, avg_win=${avg_w:.2f}, cd={cd_s}s, ratio={ratio:.1f}x)",
+                        )
+                        self.wave_engine.record_trade_closed(is_win=False, direction=side_dir, cooldown_seconds=cd_s)
                     elif any("harvest" in a or "tp" in a for a in act):
                         regime = (self.orchestrator.last_state.extra.get("market_regime") if (self.orchestrator.last_state and self.orchestrator.last_state.extra) else "SIDEWAY")
                         win_cd = 45 if "TRENDING" in str(regime) else 60
@@ -514,6 +521,22 @@ class Runtime:
                     log.warning("position manage failed (%s): %s", ticket, exc)
             else:
                 await self._finalize_closed(ticket, info)
+
+    def compute_cutloss_cooldown(self, loss_usd: float) -> tuple[int, float, float]:
+        """Compute dynamic cooldown in seconds proportional to the realized loss.
+
+        Formula:
+        ratio = abs(loss_usd) / max(1.50, live_avg_win)
+        cooldown_seconds = max(60, min(300, int(round(60.0 * ratio))))
+
+        Returns:
+            (cooldown_seconds, avg_win, loss_ratio)
+        """
+        loss_mag = abs(float(loss_usd or 0.0))
+        avg_w = max(1.50, float(getattr(self, "_live_avg_win", 3.0) or 3.0))
+        ratio = loss_mag / avg_w
+        cd_s = max(60, min(300, round(60.0 * ratio)))
+        return cd_s, avg_w, ratio
 
     async def _finalize_closed(self, ticket: int, info: dict[str, Any]) -> None:
         self.position_manager.untrack(ticket)
@@ -530,7 +553,13 @@ class Runtime:
             is_trade_win = False
         else:
             is_trade_win = (pnl > 0)
-        self.wave_engine.record_trade_closed(is_win=is_trade_win, direction=side)
+
+        if not is_trade_win:
+            loss_val = abs(pnl)
+            cd_s, avg_w, ratio = self.compute_cutloss_cooldown(loss_val)
+            self.wave_engine.record_trade_closed(is_win=False, direction=side, cooldown_seconds=cd_s)
+        else:
+            self.wave_engine.record_trade_closed(is_win=True, direction=side)
 
         if not self._trades:
             if pnl > 0:
@@ -538,7 +567,12 @@ class Runtime:
                 win_cd = 45 if "TRENDING" in str(regime) else 60
                 self.order_manager.arm_cooldown(win_cd, reason="post_win_chaining")
             else:
-                self.order_manager.arm_m1_candle_cooldown(60, reason="post_trade_cutloss")
+                loss_val = abs(pnl)
+                cd_s, avg_w, ratio = self.compute_cutloss_cooldown(loss_val)
+                self.order_manager.arm_m1_candle_cooldown(
+                    cd_s,
+                    reason=f"post_trade_cutloss (loss=-${loss_val:.2f}, avg_win=${avg_w:.2f}, cd={cd_s}s, ratio={ratio:.1f}x)",
+                )
 
         # Update daily telemetry and BizDev trackers
         self._daily_realized_pnl += pnl

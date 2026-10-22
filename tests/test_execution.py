@@ -854,5 +854,38 @@ async def test_basket_youngest_layer_grace_period_shield() -> None:
     assert "basket_cut_closed" in actions_later
 
 
+def test_dynamic_cutloss_cooldown_proportional_to_loss() -> None:
+    """Verify that cooldown scales dynamically in seconds based on loss magnitude relative to live average win."""
+    from runtime import Runtime
+    rt = Runtime.__new__(Runtime)
+    rt._live_avg_win = 3.00
+
+    # 1. Normal loss ($3.00, ratio 1.0x) -> 60s
+    cd, avg_w, ratio = rt.compute_cutloss_cooldown(3.00)
+    assert cd == 60
+    assert ratio == 1.0
+
+    # 2. Normal upper ($4.50, ratio 1.5x) -> 90s
+    cd, avg_w, ratio = rt.compute_cutloss_cooldown(4.50)
+    assert cd == 90
+    assert ratio == 1.5
+
+    # 3. Medium loss ($6.00, ratio 2.0x) -> 120s
+    cd, avg_w, ratio = rt.compute_cutloss_cooldown(6.00)
+    assert cd == 120
+    assert ratio == 2.0
+
+    # 4. Significant loss ($9.00, ratio 3.0x) -> 180s
+    cd, avg_w, ratio = rt.compute_cutloss_cooldown(9.00)
+    assert cd == 180
+    assert ratio == 3.0
+
+    # 5. Catastrophic / flash loss ($18.00, ratio 6.0x) -> capped at max 300s (5 M1 candles)
+    cd, avg_w, ratio = rt.compute_cutloss_cooldown(18.00)
+    assert cd == 300
+    assert ratio == 6.0
+
+
+
 
 
