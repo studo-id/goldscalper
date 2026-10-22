@@ -28,7 +28,7 @@ class AgentRegistry:
             raise ValueError(f"agent id already registered: {agent.id}")
         self._agents[agent.id] = agent
         self._weights.setdefault(agent.id, agent.default_weight)
-        log.info("registered agent %s (division=%s)", agent.id, agent.division)
+        log.info("registered agent %s (division=%s, weight=%.2f)", agent.id, agent.division, agent.default_weight)
 
     def register_all(self, agents: list[BaseAgent]) -> None:
         for agent in agents:

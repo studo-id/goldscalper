@@ -24,6 +24,9 @@ LTF_WEIGHT = 1.2  # M1, M5, M15, M30 — entry precision
 DIVISION = "timeframe"
 
 
+from config.settings import settings as default_settings
+
+
 class TimeframeAgent(BaseAgent):
     """Base scout: resolves bars from shared state and shapes signals."""
 
@@ -35,7 +38,14 @@ class TimeframeAgent(BaseAgent):
     def __init__(self) -> None:
         super().__init__()
         self.division = DIVISION
-        self.default_weight = HTF_WEIGHT if self.htf else LTF_WEIGHT
+        weight_overrides = {
+            "TF-M1-Sniper": getattr(default_settings, "timeframe_weight_m1_sniper", LTF_WEIGHT),
+            "TF-M5-Inspector": getattr(default_settings, "timeframe_weight_m5_inspector", LTF_WEIGHT),
+            "TF-H1-Regime": getattr(default_settings, "timeframe_weight_h1_regime", HTF_WEIGHT),
+            "TF-H4-Structure": getattr(default_settings, "timeframe_weight_h4_structure", HTF_WEIGHT),
+            "TF-D1-Macro": getattr(default_settings, "timeframe_weight_d1_macro", HTF_WEIGHT),
+        }
+        self.default_weight = weight_overrides.get(self.id, HTF_WEIGHT if self.htf else LTF_WEIGHT)
 
     def bars(self, state: SharedState) -> Bars:
         """Fetch this agent's timeframe frame from the shared state."""

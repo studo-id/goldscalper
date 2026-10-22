@@ -163,6 +163,14 @@ class Settings(BaseSettings):
     micro_sr_dead_zone_enabled: bool = False    # Disabled by default so M1 scalper can trade micro-momentum
     micro_sr_dead_zone_max_span: float = 12.00  # Max M1 span (USD) to enforce 30/40/30 dead zone
 
+    # --- Agent Weights (Configurable per account / container) ---
+    timeframe_weight_m1_sniper: float = 1.2
+    timeframe_weight_m5_inspector: float = 1.2
+    timeframe_weight_h1_regime: float = 1.5
+    timeframe_weight_h4_structure: float = 1.5
+    timeframe_weight_d1_macro: float = 1.5
+    technical_weight_sr: float = 1.0
+
     # --- Scalper Radar Inactivity Watchdog (M1/M5 Intelligence) ---
     radar_watchdog_enabled: bool = True
     radar_report_interval_s: int = 300          # 5 minutes: emit scalper radar report if no trades

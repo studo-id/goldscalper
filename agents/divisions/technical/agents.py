@@ -150,6 +150,7 @@ class SupportResistance(TechnicalAgent):
     def __init__(self, settings: Settings | None = None) -> None:
         super().__init__()
         self.s = settings or default_settings
+        self.default_weight = float(getattr(self.s, "technical_weight_sr", 1.0) or 1.0)
         self.micro_enabled: bool = getattr(self.s, "micro_sr_veto_enabled", True)
         self.micro_lookback: int = getattr(self.s, "micro_sr_lookback_m1", 20)
         self.confirm_range_usd: float = getattr(self.s, "micro_sr_confirm_range_usd", 1.20)

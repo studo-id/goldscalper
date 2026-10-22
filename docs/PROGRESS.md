@@ -35,6 +35,36 @@ Aturan singkat:
 
 ---
 
+## 2026-10-22 — Configurable Agent Weighting & Scalper Dominance Calibration (Akun 2 Lab)
+
+**Phase / Area:** SPK Consensus / Agent Weights / Account-Specific Calibration  
+**Status:** Done & Active (Akun 2 Lab)  
+
+**Yang dikerjakan**
+- **Kalibrasi Dominasi Bobot Petugas M1 & M5 (Khusus Akun 2 Lab):**
+  - Mengatasi ketimpangan arsitektur lama di mana timeframe lambat (H1, H4, D1) memiliki bobot 1.5, menenggelamkan sinyal petugas penembak M1 (1.2) dan M5 (1.2).
+  - Menjadikan bobot agent sepenuhnya dapat dikonfigurasi secara modular via `config/settings.py` dan environment variable (`.env.lab`).
+  - **Profil Bobot Akun 2 (`gs-bot-lab`):**
+    - `TF-M1-Sniper`: Ditingkatkan dari **1.2 ➔ 1.8** (+50%) sebagai penembak jitu pola candle per candle M1.
+    - `TF-M5-Inspector`: Ditingkatkan dari **1.2 ➔ 1.6** (+33%) sebagai konfirmator struktur M5.
+    - `Tech-SupportResistance`: Ditingkatkan dari **1.0 ➔ 1.4** (+40%) sebagai pengawal batas pantulan S/R.
+    - `TF-H1-Regime`: Dinormalkan ke **1.3** sebagai kompas tren makro.
+    - `TF-H4-Structure` & `TF-D1-Macro`: Dinormalkan ke **1.2** sebagai radar cuaca harian.
+  - **Akun 1 (`gs-bot`):** Tetap beroperasi pada baseline standar tanpa perubahan.
+
+**File tersentuh**
+- `config/settings.py` — Menambahkan setting bobot agent per-account
+- `agents/divisions/timeframe/base.py` — Membaca override bobot dari settings di `TimeframeAgent`
+- `agents/divisions/technical/agents.py` — Membaca `technical_weight_sr` di `SupportResistance`
+- `agents/registry.py` — Menambahkan logging bobot saat registrasi agent
+- `docs/PROGRESS.md` — Dokumentasi sinkronisasi
+
+**Verifikasi**
+- `pytest tests/test_spk_veto.py tests/test_technical_division.py tests/test_execution.py tests/test_wave_engine.py tests/test_structural_guard.py -q` → 107 passed (100% green).
+- Log registrasi `gs-bot-lab` mengonfirmasi: `TF-M1-Sniper weight=1.80`, `TF-M5-Inspector weight=1.60`, `Tech-SupportResistance weight=1.40`.
+
+---
+
 ## 2026-10-22 — Anti-Retracement Pucuk/Lembah Guard, Trend-Aligned 1-Way Ping-Pong, & Solo Outlier H1 Normalization
 
 **Phase / Area:** SPK Veto Engine / Technical Division (SupportResistance) / Anti-Blunder Protection  
