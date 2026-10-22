@@ -35,6 +35,40 @@ Aturan singkat:
 
 ---
 
+## 2026-10-22 — Anti-Retracement Pucuk/Lembah Guard, Trend-Aligned 1-Way Ping-Pong, & Solo Outlier H1 Normalization
+
+**Phase / Area:** SPK Veto Engine / Technical Division (SupportResistance) / Anti-Blunder Protection  
+**Status:** Done & Active  
+
+**Yang dikerjakan**
+- **Forensik & Investigasi Tiket 4325031162 (Loss -4.10 USC @ 4,062.08) & Deadlock 1 Jam:**
+  - *Blunder BUY di Pucuk Range:* Terjadi ketika candle M1 membentuk 2 bar hijau koreksi/pullback di rentang konsolidasi $4,054 - $4,065. `detect_market_regime` melabeli gerakan mikro tersebut sebagai `TRENDING_BULL` (Trend Continuation BUY), melewati rule atap Upper 30% resistance, sehingga bot membuka BUY di posisi 75% range tepat di bawah resistance plafon sebelum harga flash dump ke $4,056. Trade dipotong cepat di 4,060.06 oleh `JUGGLER HTF BREAKDOWN CUT` (-$4.10), menyelamatkan akun dari kerugian lebih dalam (-$14+), namun entry tersebut adalah blunder yang seharusnya tidak pernah terjadi.
+  - *Deadlock 1 Jam Sideway:* H1 membaca range 24 jam lalu dan memancarkan bias bullish (`VETO_SELL`), meskipun 6 timeframe lainnya (M1, M5, M15, M30, H4, D1) semuanya bearish. Penalti konflik HTF berlapis memangkas confidence SPK hingga tersisa 0.07, lalu Orchestrator menguncinya dalam `HARD VETO: LOW CONFIDENCE: 0.07 < 0.20`.
+- **Implementasi Solusi 3 Pilar:**
+  1. *Anti-Retracement Pucuk/Lembah Guard (`agents/divisions/technical/agents.py`):*
+     - Di dalam rentang konsolidasi M1, posisi harga di atas 65% (`pos_pct >= 0.65`) **DILARANG KERAS** membuka `TREND_CONTINUATION_BUY` (veto BUY) kecuali telah terjadi *Confirmed Breakout* di atas $m1\_resistance + buffer$.
+     - Posisi harga di bawah 35% (`pos_pct <= 0.35`) **DILARANG KERAS** membuka `TREND_CONTINUATION_SELL` (veto SELL) kecuali telah terjadi *Confirmed Breakdown*.
+  2. *Trend-Aligned 1-Way Ping-Pong (`spk/veto.py`):*
+     - Menghitung konsensus kompleks HTF (M15, M30, H1, H4, D1).
+     - Di area range/sideways, jika tren makro HTF mayoritas **BEARISH** ($\ge 3$ scouts): Ping-pong dikunci menjadi **HANYA SELL di Resistance Upper 30%**, dan memicu **HARD VETO (TREND_ALIGNED_PING_PONG)** jika ada sinyal BUY di mana pun dalam kotak.
+     - Sebaliknya, jika tren makro HTF mayoritas **BULLISH** ($\ge 3$ scouts): Ping-pong dikunci menjadi **HANYA BUY di Support Lower 30%**, dan memicu hard veto untuk SELL.
+  3. *Solo Outlier H1 Veto Normalization (`spk/veto.py`):*
+     - Jika 3+ scout HTF (M15, M30, H4, D1) sudah kompak searah dengan M1/M5, status opposing solo dari H1 dinormalisasi menjadi penalti keyakinan minimal (-0.05 alih-alih -0.30), mencegah confidence anjlok ke 0.07 dan meloloskan eksekusi sell scalp di resistance.
+
+**File tersentuh**
+- `agents/divisions/technical/agents.py` — Menambahkan hard ceiling/floor blocker pada trend continuation di dalam span range M1
+- `spk/veto.py` — Menambahkan `htf_scouts` consensus, `TREND_ALIGNED_PING_PONG` 1-way range rule, dan normalisasi solo outlier H1
+- `tests/test_spk_veto.py` — Menambahkan unit test `test_trend_aligned_ping_pong_blocks_counter_trend_in_range` & `test_solo_outlier_h1_softened_when_macro_htf_aligned`
+- `docs/PROGRESS.md` — Dokumentasi sinkronisasi
+
+**Verifikasi**
+- `pytest tests/test_spk_veto.py tests/test_technical_division.py tests/test_execution.py tests/test_wave_engine.py tests/test_structural_guard.py -q` → 107 passed (100% green).
+
+**Catatan / Next**
+- Deploy file yang diperbarui ke VPS server (`gs-bot` & `gs-bot-lab`).
+
+---
+
 ## 2026-10-22 — Anti-Deadlock Protocol, Agent-Checked Pyramid Transition, & Dynamic Juggler Basket Cut
 
 **Phase / Area:** SPK Veto Engine / Execution (Order & Position Manager) / Multi-Entry Safety  

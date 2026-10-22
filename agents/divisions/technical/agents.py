@@ -363,6 +363,15 @@ class SupportResistance(TechnicalAgent):
                                 meta,
                                 veto=VETO_SELL,
                             )
+                        if pos_pct <= 0.35:
+                            meta["micro_sr_event"] = "TREND_SELL_BLOCKED_AT_FLOOR"
+                            return self.signal(
+                                VOTE_NEUTRAL,
+                                0.80,
+                                f"trend continuation SELL prohibited near range floor ({pos_pct*100:.1f}% <= 35% of M1 span), veto SELL until confirmed breakdown",
+                                meta,
+                                veto=VETO_SELL,
+                            )
                         meta["micro_sr_event"] = "TREND_CONTINUATION_SELL"
                         return self.signal(
                             VOTE_SELL,
@@ -381,6 +390,15 @@ class SupportResistance(TechnicalAgent):
                                 VOTE_NEUTRAL,
                                 0.80,
                                 f"bullish trend expansion rejected at M1 resistance (upper wick {u_wick/c_span*100:.0f}% >= 40%), veto BUY until breakout",
+                                meta,
+                                veto=VETO_BUY,
+                            )
+                        if pos_pct >= 0.65:
+                            meta["micro_sr_event"] = "TREND_BUY_BLOCKED_AT_CEILING"
+                            return self.signal(
+                                VOTE_NEUTRAL,
+                                0.80,
+                                f"trend continuation BUY prohibited near range ceiling ({pos_pct*100:.1f}% >= 65% of M1 span), veto BUY until confirmed breakout",
                                 meta,
                                 veto=VETO_BUY,
                             )

@@ -81,6 +81,20 @@ def evaluate(
     h1_sig = next((s for s in signals if s.agent_id == "TF-H1-Regime"), None)
     d1_sig = next((s for s in signals if s.agent_id == "TF-D1-Macro"), None)
 
+    # Intermediate-to-Higher Timeframe Complex (M15, M30, H1, H4, D1)
+    htf_scouts = [
+        s for s in signals
+        if s.agent_id in ("TF-M15-Liquidity", "TF-M30-Momentum", "TF-H1-Regime", "TF-H4-Structure", "TF-D1-Macro")
+    ]
+    htf_bear_count = sum(
+        1 for s in htf_scouts
+        if s.vote < 0 or s.veto == VETO_BUY or "BEAR" in (s.reasoning or "").upper()
+    )
+    htf_bull_count = sum(
+        1 for s in htf_scouts
+        if s.vote > 0 or s.veto == VETO_SELL or "BULL" in (s.reasoning or "").upper()
+    )
+
     h1_bear = False
     if h1_sig is not None:
         h1_bear = (h1_sig.vote < 0 or h1_sig.veto == VETO_BUY or "BEARISH" in (h1_sig.reasoning or "").upper())
@@ -104,6 +118,24 @@ def evaluate(
         d1_bull = (d1_sig.vote > 0 or d1_sig.veto == VETO_SELL or "BULLISH" in (d1_sig.reasoning or "").upper())
 
     macro_bullish = h1_bull and d1_bull
+
+    # 1. TREND-ALIGNED PING-PONG (1-Way Range Scalping Rule):
+    # In range-bound/sideways conditions, counter-trend scalping against confirmed HTF momentum
+    # causes catastrophic knife-catching (e.g. buying near top or mid-range before macro dump).
+    is_in_range = sideways_mode or is_ping_pong or bool(state and hasattr(state, "extra") and isinstance(state.extra, dict) and state.extra.get("sideways_range"))
+    if is_in_range:
+        if direction == ACTION_BUY and htf_bear_count >= 3 and htf_bear_count > htf_bull_count:
+            return VetoResult(
+                hard=True,
+                reason=f"TREND_ALIGNED_PING_PONG: Blocked counter-trend BUY in range while macro HTF is strongly BEARISH ({htf_bear_count} HTF scouts opposing: M15/M30/H4/D1). Only SELL allowed at resistance!",
+                notes=["TREND_ALIGNED_PING_PONG:veto_buy_against_bearish_macro"],
+            )
+        if direction == ACTION_SELL and htf_bull_count >= 3 and htf_bull_count > htf_bear_count:
+            return VetoResult(
+                hard=True,
+                reason=f"TREND_ALIGNED_PING_PONG: Blocked counter-trend SELL in range while macro HTF is strongly BULLISH ({htf_bull_count} HTF scouts opposing). Only BUY allowed at support!",
+                notes=["TREND_ALIGNED_PING_PONG:veto_sell_against_bullish_macro"],
+            )
 
     if p.counter_trend_defense_block_enabled and daily_pnl_pct < 0.0:
         if direction == ACTION_BUY and macro_bearish:
@@ -170,9 +202,28 @@ def evaluate(
         and session_aligned
     )
 
+    # Check if H1 is a solo outlier against an otherwise aligned HTF majority:
+    is_h1_solo_opposing_buy = (
+        direction == ACTION_BUY
+        and htf_bull_count >= 3
+        and h1_sig is not None
+        and (h1_sig.vote < 0 or h1_sig.veto == VETO_BUY or "BEAR" in (h1_sig.reasoning or "").upper())
+    )
+    is_h1_solo_opposing_sell = (
+        direction == ACTION_SELL
+        and htf_bear_count >= 3
+        and h1_sig is not None
+        and (h1_sig.vote > 0 or h1_sig.veto == VETO_SELL or "BULL" in (h1_sig.reasoning or "").upper())
+    )
+
     if direction == ACTION_BUY and htf_score < -0.10:
         opposing_htf = abs(htf_score)
-        if opposing_htf >= 2.40:
+        if is_h1_solo_opposing_buy:
+            result.confidence_delta -= 0.05
+            result.notes.append(
+                f"HTF solo outlier H1 softened (-0.05) because majority HTF ({htf_bull_count} scouts) confirms BULLISH flow"
+            )
+        elif opposing_htf >= 2.40:
             return VetoResult(
                 hard=True,
                 reason=f"HTF_DIVERGENCE_EXTREME: Blocked BUY against extreme HTF opposition (htf_score={htf_score:.2f} <= -2.40)",
@@ -208,7 +259,12 @@ def evaluate(
 
     elif direction == ACTION_SELL and htf_score > 0.10:
         opposing_htf = htf_score
-        if opposing_htf >= 2.40:
+        if is_h1_solo_opposing_sell:
+            result.confidence_delta -= 0.05
+            result.notes.append(
+                f"HTF solo outlier H1 softened (-0.05) because majority HTF ({htf_bear_count} scouts) confirms BEARISH flow"
+            )
+        elif opposing_htf >= 2.40:
             return VetoResult(
                 hard=True,
                 reason=f"HTF_DIVERGENCE_EXTREME: Blocked SELL against extreme HTF opposition (htf_score=+{htf_score:.2f} >= +2.40)",
@@ -463,6 +519,16 @@ def evaluate(
             # For ultra-fast M1 scalping, macro HTF directional bias must NEVER hard-paralyze the bot!
             # Instead, it applies a calibrated confidence penalty (-0.30) so high-conviction scalps can proceed.
             if is_tf_agent:
+                # If this is H1 acting as a solo outlier while majority HTF agrees with trade direction:
+                if (
+                    sig.agent_id == "TF-H1-Regime"
+                    and ((direction == ACTION_SELL and is_h1_solo_opposing_sell) or (direction == ACTION_BUY and is_h1_solo_opposing_buy))
+                ):
+                    result.confidence_delta -= 0.05
+                    result.notes.append(
+                        f"Solo outlier H1 veto softened to minimal penalty (-0.05) by majority HTF agreement"
+                    )
+                    continue
                 result.confidence_delta -= p.htf_conflict_penalty
                 result.notes.append(
                     f"HTF macro veto softened to confidence penalty ({sig.agent_id}:{sig.veto})"

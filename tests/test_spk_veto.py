@@ -564,5 +564,36 @@ def test_htf_divergence_demotes_with_strong_tactical_confluence() -> None:
     assert any("HTF_DIVERGENCE_CONTESTED demoted to soft penalty" in n for n in res_sell.notes)
 
 
+def test_trend_aligned_ping_pong_blocks_counter_trend_in_range() -> None:
+    """Verify that in range conditions, counter-trend trades against majority HTF are hard-vetoed."""
+    htf_sigs = [
+        AgentSignal(agent_id="TF-M15-Liquidity", division="timeframe", vote=-1, confidence=0.75, weight=1.2),
+        AgentSignal(agent_id="TF-M30-Momentum", division="timeframe", vote=-1, confidence=0.65, weight=1.2),
+        AgentSignal(agent_id="TF-H4-Structure", division="timeframe", vote=-1, confidence=0.75, weight=1.5),
+        AgentSignal(agent_id="TF-D1-Macro", division="timeframe", vote=-1, confidence=0.80, weight=1.5),
+        AgentSignal(agent_id="TF-H1-Regime", division="timeframe", vote=0, confidence=0.50, weight=1.5, reasoning="H1 regime SIDEWAYS"),
+    ]
+    state = SharedState(daily_pnl_pct=1.0)
+    state.extra["sideways_range"] = True
+
+    # Attempting BUY in range against 4 bearish HTF scouts -> MUST HARD VETO
+    res_buy = evaluate(htf_sigs, state, ACTION_BUY)
+    assert res_buy.hard is True
+    assert "TREND_ALIGNED_PING_PONG" in (res_buy.reason or "")
+    assert "Only SELL allowed at resistance" in (res_buy.reason or "")
 
 
+def test_solo_outlier_h1_softened_when_macro_htf_aligned() -> None:
+    """Verify that when M15, M30, H4, D1 are bearish, a solo bullish H1 is softened to -0.05 instead of -0.30."""
+    htf_sigs = [
+        AgentSignal(agent_id="TF-M15-Liquidity", division="timeframe", vote=-1, confidence=0.75, weight=1.2),
+        AgentSignal(agent_id="TF-M30-Momentum", division="timeframe", vote=-1, confidence=0.65, weight=1.2),
+        AgentSignal(agent_id="TF-H4-Structure", division="timeframe", vote=-1, confidence=0.75, weight=1.5),
+        AgentSignal(agent_id="TF-D1-Macro", division="timeframe", vote=-1, confidence=0.80, weight=1.5),
+        AgentSignal(agent_id="TF-H1-Regime", division="timeframe", vote=1, confidence=0.75, weight=1.5, veto="VETO_SELL", reasoning="H1 regime SIDEWAYS bias BULLISH"),
+    ]
+    state = SharedState(daily_pnl_pct=1.0)
+
+    res_sell = evaluate(htf_sigs, state, ACTION_SELL)
+    assert res_sell.hard is False
+    assert any("Solo outlier H1 veto softened to minimal penalty (-0.05)" in note for note in res_sell.notes)
