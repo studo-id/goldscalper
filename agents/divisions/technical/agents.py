@@ -265,7 +265,7 @@ class SupportResistance(TechnicalAgent):
 
                 # 1. Confirmed M1 Breakout / Breakdown (Must genuinely close beyond boundary buffer)
                 if close < (m1_support - buf):
-                    if close <= (support + buf) and b.last_close >= support:
+                    if close <= (support + buf) and b.last_close >= support and not (regime.is_trending and regime.direction == "SELL"):
                         meta["micro_sr_event"] = "M5_SUPPORT_COLLISION"
                         return self.signal(
                             VOTE_NEUTRAL,
@@ -283,7 +283,7 @@ class SupportResistance(TechnicalAgent):
                         veto=VETO_BUY,  # Strictly forbid buying against active breakdown!
                     )
                 if close > (m1_resistance + buf):
-                    if close >= (resistance - buf) and b.last_close <= resistance:
+                    if close >= (resistance - buf) and b.last_close <= resistance and not (regime.is_trending and regime.direction == "BUY"):
                         meta["micro_sr_event"] = "M5_RESISTANCE_COLLISION"
                         return self.signal(
                             VOTE_NEUTRAL,
@@ -341,47 +341,56 @@ class SupportResistance(TechnicalAgent):
                         veto=VETO_BUY,
                     )
 
-                # 4. Active Trend Continuation in Mid Channel (When Trending, Dead-Zone is SHUT OFF!)
+                # 4. Active Trend Continuation in Mid/Upper Channel (When Trending, Dead-Zone is SHUT OFF!)
                 if regime.is_trending and regime.allow_trend_continuation:
+                    bar_idx = -1 if b_m1.n >= 1 else 0
+                    last_o = b_m1.opens[bar_idx]
+                    last_h = b_m1.highs[bar_idx]
+                    last_l = b_m1.lows[bar_idx]
+                    last_c = b_m1.closes[bar_idx]
+                    c_span = max(0.01, last_h - last_l)
+
                     if regime.direction == "SELL":
-                        min_sr_dist = 0.50 if self.aggressive else buf
-                        pos_limit = 0.15 if self.aggressive else 0.30
-                        if pos_pct <= pos_limit or close <= (m1_support + min_sr_dist):
+                        l_wick = max(0.0, min(last_o, last_c) - last_l)
+                        has_support_rejection = (l_wick / c_span) >= 0.40 and close <= (m1_support + buf)
+
+                        if has_support_rejection:
                             meta["micro_sr_event"] = "TREND_BLOCKED_AT_SUPPORT"
                             return self.signal(
                                 VOTE_NEUTRAL,
                                 0.80,
-                                f"bearish trend expansion blocked at M1 support floor (${close:.2f} <= ${m1_support + min_sr_dist:.2f}, {pos_pct*100:.1f}%), veto SELL until breakdown",
+                                f"bearish trend expansion rejected at M1 support (lower wick {l_wick/c_span*100:.0f}% >= 40%), veto SELL until breakdown",
                                 meta,
                                 veto=VETO_SELL,
                             )
                         meta["micro_sr_event"] = "TREND_CONTINUATION_SELL"
                         return self.signal(
                             VOTE_SELL,
-                            0.75,
-                            f"trend continuation SELL in mid-channel ({regime.description})",
+                            0.80,
+                            f"trend continuation SELL riding bearish impulse ({regime.description})",
                             meta,
-                            veto=VETO_BUY,  # Disallow buying against the wave
+                            veto=VETO_BUY,  # Disallow buying against the active wave
                         )
                     if regime.direction == "BUY":
-                        min_sr_dist = 0.50 if self.aggressive else buf
-                        pos_limit = 0.85 if self.aggressive else 0.70
-                        if pos_pct >= pos_limit or close >= (m1_resistance - min_sr_dist):
+                        u_wick = max(0.0, last_h - max(last_o, last_c))
+                        has_resistance_rejection = (u_wick / c_span) >= 0.40 and close >= (m1_resistance - buf)
+
+                        if has_resistance_rejection:
                             meta["micro_sr_event"] = "TREND_BLOCKED_AT_RESISTANCE"
                             return self.signal(
                                 VOTE_NEUTRAL,
                                 0.80,
-                                f"bullish trend expansion blocked at M1 resistance ceiling (${close:.2f} >= ${m1_resistance - min_sr_dist:.2f}, {pos_pct*100:.1f}%), veto BUY until breakout",
+                                f"bullish trend expansion rejected at M1 resistance (upper wick {u_wick/c_span*100:.0f}% >= 40%), veto BUY until breakout",
                                 meta,
                                 veto=VETO_BUY,
                             )
                         meta["micro_sr_event"] = "TREND_CONTINUATION_BUY"
                         return self.signal(
                             VOTE_BUY,
-                            0.75,
-                            f"trend continuation BUY in mid-channel ({regime.description})",
+                            0.80,
+                            f"trend continuation BUY riding bullish impulse ({regime.description})",
                             meta,
-                            veto=VETO_SELL,  # Disallow selling against the wave
+                            veto=VETO_SELL,  # Disallow selling against the active wave
                         )
 
                 # 5. Stage 1: Sideway Murni (Range Consolidation)

@@ -35,6 +35,35 @@ Aturan singkat:
 
 ---
 
+## 2026-10-22 — Trend Continuation S/R Calibration & Anti-Paralysis Fix (Impulse Ride vs Barrier Veto)
+
+**Phase / Area:** SPK Veto Engine / Technical Division (SupportResistance Agent)  
+**Status:** Done & Active  
+
+**Yang dikerjakan**
+- **Forensik & Investigasi Paralisis Entry Reli Bullish ($4,071 s/d $4,092):**
+  - Menganalisis log dan screenshot saat reli impulsif M1/M5 berlangsung selama 18+ menit tanpa eksekusi entry sama sekali (`• HARD VETO`).
+  - Ditemukan bahwa watchdog agen (`TF-M5-Inspector`, `Struct-MarketStructure`, `Tech-Trend`) secara aktif memberikan sinyal konfirmasi BUY (+1) dengan BOS (Break of Structure) & M5 Breakout, namun diparalisis oleh single `Tech-SupportResistance` hard veto.
+  - Akar masalah ditemukan pada 2 titik:
+    1. `agents/divisions/technical/agents.py`: `SupportResistance` otomatis mengeluarkan `veto=VETO_BUY` hanya karena posisi harga di channel M1 berada di persentil `pos_pct >= 0.70` (atau `0.85`), sekalipun candle berupa impulse bullish kuat tanpa ekor penolakan atas (*upper rejection wick*). Selain itu, pengecekan tabrakan resistance M5 memblokir entry bahkan ketika tren sedang aktif melaju (*trending expansion*).
+    2. `spk/veto.py`: Variabel `is_sideway` masih bernilai `True` akibat residu status `sideways_range` dari 20 bar M5 sebelumnya, padahal `market_regime` sudah berganti menjadi `TRENDING_BULL`. Hal ini menyebabkan veto S/R diperlakukan sebagai `HARD BARRIER (ANTI_SIDEWAY_TRAP)` yang tidak dapat ditembus.
+- **Implementasi Solusi Kalibrasi Dual-Layer:**
+  - `agents/divisions/technical/agents.py`:
+    - Mengizinkan trend continuation menaiki impuls tren tanpa memblokir entry di `pos_pct >= 0.70/0.85`, KECUALI terdapat *upper rejection wick* $\ge 40\%$ dari total bentang candle M1 di dekat batas resistance (atau *lower rejection wick* $\ge 40\%$ di dekat support untuk SELL).
+    - Membebaskan pengecekan tabrakan resistance/support M5 jika regime sedang dalam keadaan `regime.is_trending`.
+  - `spk/veto.py`:
+    - Memastikan `is_sideway` bernilai `False` jika `market_regime` adalah `TRENDING_BULL` atau `TRENDING_BEAR` (`is_trending_active`).
+    - Menambahkan `has_watchdog_breakout` confluence (`TF-M5-Inspector`, `Struct-MarketStructure`, `Tech-Trend` konfirmasi breakout/impuls/BOS) ke dalam syarat demosi barrier sideway `can_demote_sideway_barrier`.
+
+**File tersentuh**
+- `agents/divisions/technical/agents.py` — Rejection wick-based S/R barrier check for active trends.
+- `spk/veto.py` — Trend regime guard over lingering sideways flags and watchdog breakout confluence demotion.
+
+**Verifikasi**
+- `pytest tests/test_execution.py tests/test_spk_veto.py tests/test_wave_engine.py tests/test_technical_division.py tests/test_structural_guard.py -q` → 101 passed, 100% clean.
+
+---
+
 ## 2026-10-22 — Institutional Session Violence Hard Veto & Anti-Counter-Trend Wave Chaining Fix
 
 **Phase / Area:** SPK Veto Engine / Wave Engine / Execution Order Gate  

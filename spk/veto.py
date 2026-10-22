@@ -262,10 +262,17 @@ def evaluate(
                     and spk_confluence_count >= 5
                     and spk_confluence_count >= 2 * spk_opposing_count
                 )
+                has_watchdog_breakout = any(
+                    s.agent_id in ("TF-M5-Inspector", "Struct-MarketStructure", "Tech-Trend")
+                    and (s.vote < 0 if direction == ACTION_SELL else s.vote > 0)
+                    and any(kw in (s.reasoning or "").lower() for kw in ("breakout", "break of structure", "uptrend", "downtrend", "bos", "impulse"))
+                    for s in signals
+                )
                 can_demote_sideway_barrier = (
                     has_sniper_active
                     or has_waterfall
                     or has_multi_division_breakout
+                    or has_watchdog_breakout
                 )
 
                 # 1. CRITICAL ANTI-SUICIDE IN SIDEWAY REGIMES (Anti-Pucuk & Anti-Lembah):
@@ -274,12 +281,17 @@ def evaluate(
                 # UNLESS:
                 # - M1 Sniper specifically triggers a scalping momentum/rejection entry (conf >= 0.60), OR
                 # - An active waterfall expansion/crash is detected, OR
-                # - A decisive cross-division consensus (>= 3 independent divisions, >= 5 confirming) validates a structural breakout!
+                # - A decisive cross-division consensus (>= 3 independent divisions, >= 5 confirming) validates a structural breakout, OR
+                # - Watchdog agents (M5 Inspector / BOS / Trend) confirm active structural breakout/impulse!
+                is_trending_active = market_regime in ("TRENDING_BULL", "TRENDING_BEAR")
                 is_sideway = (
-                    market_regime == "SIDEWAY"
-                    or sideways_mode
-                    or is_ping_pong
-                    or (state and hasattr(state, "extra") and isinstance(state.extra, dict) and state.extra.get("sideways_range"))
+                    not is_trending_active
+                    and (
+                        market_regime == "SIDEWAY"
+                        or sideways_mode
+                        or is_ping_pong
+                        or (state and hasattr(state, "extra") and isinstance(state.extra, dict) and state.extra.get("sideways_range"))
+                    )
                 )
                 is_aggressive = getattr(default_settings, "aggressive_scalper", False)
                 if is_sideway and not (can_demote_sideway_barrier or is_aggressive):
