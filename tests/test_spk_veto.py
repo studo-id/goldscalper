@@ -514,3 +514,28 @@ def test_dynamic_htf_divergence_veto() -> None:
     assert res_sell.hard is False
 
 
+def test_session_waterfall_hard_veto_cannot_be_demoted() -> None:
+    session_sig = AgentSignal(
+        agent_id="Struct-Session",
+        division="structure",
+        vote=-1,
+        confidence=0.85,
+        veto=VETO_BUY,
+        reasoning="LONDON waterfall crash (-$27.9 from open), veto BUY",
+    )
+    sniper_sig = AgentSignal(
+        agent_id="TF-M1-Sniper",
+        division="timeframe",
+        vote=1,
+        confidence=0.75,
+    )
+    state = SharedState(
+        extra={"session_waterfall_bear": True, "market_regime": "SIDEWAY"}
+    )
+    # Even in sideway mode with an active M1 sniper, waterfall crash MUST remain a HARD VETO!
+    res = evaluate([session_sig, sniper_sig], state, ACTION_BUY)
+    assert res.hard is True
+    assert "SESSION VIOLENCE GUARD" in (res.reason or "")
+
+
+

@@ -191,6 +191,16 @@ class OrderManager:
             log.warning("MOMENTUM CANDLE GUARD: %s", mom_reason)
             return ExecutionResult(ok=False, reason=mom_reason)
 
+        # Anti-Waterfall / Anti-Rocket Session Guard (Universal Gate):
+        # Strictly applies to ALL entries: Initial Entry (open_count == 0), Wave Continuation, and Rescue Layering.
+        if state is not None and hasattr(state, "extra") and isinstance(state.extra, dict):
+            if decision.action == ACTION_BUY and state.extra.get("session_waterfall_bear"):
+                log.warning("ANTI-WATERFALL GUARD: blocked BUY entry during session waterfall drop")
+                return ExecutionResult(ok=False, reason="anti-waterfall guard: bearish session drop")
+            if decision.action == ACTION_SELL and state.extra.get("session_waterfall_bull"):
+                log.warning("ANTI-WATERFALL GUARD: blocked SELL entry during session rocket spike")
+                return ExecutionResult(ok=False, reason="anti-waterfall guard: bullish session spike")
+
         # Multi-Entry & Smart Rescue Recovery Evaluation
         if open_count > 0:
             if not self.settings.multi_entry_enabled:

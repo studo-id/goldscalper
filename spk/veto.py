@@ -348,6 +348,21 @@ def evaluate(
             is_tf_agent = (sig.division == "timeframe" or sig.agent_id.startswith("TF-"))
             is_analysis_agent = sig.division in ("structure", "technical", "timeframe", "fundamental")
 
+            # CRITICAL SESSION WATERFALL / ROCKET VIOLENCE PROTECTION (Hard Barrier):
+            # Violent session waterfall drops or rocket rallies are macro market facts.
+            # Counter-trend entries (e.g. BUY into an active -$20 waterfall drop) are suicidal and must NEVER be demoted!
+            is_session_violence = (
+                (sig.agent_id == "Struct-Session" and any(kw in (sig.reasoning or "").lower() for kw in ("waterfall", "rocket")))
+                or (direction == ACTION_BUY and state and hasattr(state, "extra") and isinstance(state.extra, dict) and state.extra.get("session_waterfall_bear"))
+                or (direction == ACTION_SELL and state and hasattr(state, "extra") and isinstance(state.extra, dict) and state.extra.get("session_waterfall_bull"))
+            )
+            if is_session_violence:
+                return VetoResult(
+                    hard=True,
+                    reason=f"SESSION VIOLENCE GUARD: {sig.agent_id} blocked {direction} during active session momentum ({sig.reasoning})",
+                    notes=[f"{sig.agent_id}:{sig.veto}:session_violence"],
+                )
+
             # CRITICAL ANTI-SUICIDE PROTECTION: Extreme Discount / Premium Valuation
             # In sideways markets or range conditions, selling at extreme discount (support floor)
             # or buying at extreme premium (resistance ceiling) is fatal and must NEVER be demoted!

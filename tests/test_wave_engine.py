@@ -112,3 +112,31 @@ def test_spk_veto_enforces_broken_wave_cooldown() -> None:
     # BUY must NOT be blocked by wave engine!
     veto_buy = evaluate([], st, direction=ACTION_BUY)
     assert not (veto_buy.hard and "VETO_WAVE" in (veto_buy.reason or ""))
+
+
+def test_wave_engine_blocks_counter_trend_chaining() -> None:
+    engine = DataDrivenWaveEngine()
+    rows = [(2350.0 + (i * 0.2), 2351.0 + (i * 0.2), 2349.5 + (i * 0.2), 2350.5 + (i * 0.2)) for i in range(30)]
+    frames = {"M5": _frame("M5", rows), "M1": _frame("M1", rows)}
+    st = SharedState(
+        symbol="XAUUSD",
+        frames=frames,
+        extra={"session_waterfall_bear": True, "market_regime": "TRENDING_BEAR"},
+    )
+
+    # 1. Trade #1 (chain_count = 0 -> 1): Initial counter-trend scalp is permitted
+    cap1 = engine.evaluate_wave(st, candidate_direction="BUY", current_price=2356.5)
+    assert cap1.can_chain is True
+
+    # Record trade #1 opened and closed with profit
+    engine.record_trade_opened("BUY", price=2356.0)
+    engine.record_trade_closed(is_win=True, direction="BUY")
+    assert engine.chain_count == 1
+
+    # 2. Trade #2 (chain_count >= 1): Attempting wave continuation against active bear trend
+    # MUST BE EXHAUSTED AND BLOCKED (Single-shot counter-trend rule)!
+    cap2 = engine.evaluate_wave(st, candidate_direction="BUY", current_price=2356.8)
+    assert cap2.capacity == CAPACITY_EXHAUSTED
+    assert cap2.can_chain is False
+    assert "single-shot only" in cap2.reason
+

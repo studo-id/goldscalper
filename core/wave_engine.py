@@ -220,6 +220,38 @@ class DataDrivenWaveEngine:
             or (dir_norm == "BUY" and (u_wick / c_range) >= 0.40)
         )
 
+        # 3b. Counter-Trend Awareness & Single-Shot Restriction:
+        # If wave direction opposes Higher Timeframe trend (e.g. BUY during session waterfall drop / bear trend),
+        # pullback bounces are strictly SINGLE-SHOT! Wave chaining (Trade #2, #3...) is disabled.
+        is_counter_trend = False
+        if state is not None and hasattr(state, "extra") and isinstance(state.extra, dict):
+            regime = str(state.extra.get("market_regime", "")).upper()
+            if dir_norm == "BUY" and (state.extra.get("session_waterfall_bear") or "BEAR" in regime):
+                is_counter_trend = True
+            elif dir_norm == "SELL" and (state.extra.get("session_waterfall_bull") or "BULL" in regime):
+                is_counter_trend = True
+
+        b_m15 = Bars.for_timeframe(state, "M15") if state else None
+        if b_m15 and b_m15.n >= 15:
+            ema20_m15 = ema_last(b_m15.closes, min(20, b_m15.n))
+            ema50_m15 = ema_last(b_m15.closes, min(50, b_m15.n))
+            if dir_norm == "BUY" and ema20_m15 < ema50_m15:
+                is_counter_trend = True
+            elif dir_norm == "SELL" and ema20_m15 > ema50_m15:
+                is_counter_trend = True
+
+        if is_counter_trend and self.chain_count >= 1:
+            return WaveCapacity(
+                capacity=CAPACITY_EXHAUSTED,
+                direction=dir_norm,
+                chain_count=self.chain_count,
+                extension_atr=extension_atr,
+                is_exhausted=True,
+                can_chain=False,
+                size_multiplier=0.0,
+                reason=f"Counter-trend wave is single-shot only (Chain #{self.chain_count} finished, HTF opposing)",
+            )
+
         # 4. Data-Driven Classification
         if extension_atr > 2.50 or (extension_atr > 2.0 and has_counter_wick):
             return WaveCapacity(

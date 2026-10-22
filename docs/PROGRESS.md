@@ -35,6 +35,38 @@ Aturan singkat:
 
 ---
 
+## 2026-10-22 — Institutional Session Violence Hard Veto & Anti-Counter-Trend Wave Chaining Fix
+
+**Phase / Area:** SPK Veto Engine / Wave Engine / Execution Order Gate  
+**Status:** Done & Active  
+
+**Yang dikerjakan**
+- **Validasi Forensik Kasus Loss BUY #2 (Ticket 4322621358):**
+  - Mengaudit kronologi transaksi: Trade #1 (BUY 0.06) menang +$10.50 (+17.5 pips) karena menangkap pantulan mikro di $4063.12.
+  - Namun 45 detik kemudian, Wave Engine melanjutkan Wave Chaining dengan membuka Trade #2 (BUY 0.05 @ 4063.94) tepat saat pasar melanjutkan *London Waterfall Crash* (-$27.90 dari open London), menyebabkan cutloss -$13.00 (-25.89 pips).
+  - Ditemukan 3 cacat berantai:
+    1. `spk/veto.py`: `Struct-Session: VETO_BUY` didemosi menjadi soft penalty (-0.10) karena dimasukkan dalam kelompok `is_analysis_agent` saat sideway/ping-pong.
+    2. `execution/order_manager.py`: Pengecekan `session_waterfall_bear` hanya ditaruh di dalam blok `is_rescue` (averaging), sehingga initial entry dan wave continuation lolos tanpa filter.
+    3. `core/wave_engine.py`: Wave Engine tidak memiliki kesadaran arah HTF, sehingga tetap melanjutkan wave chaining (Trade #2, #3) pada posisi counter-trend.
+- **Implementasi 3 Lapisan Perbaikan Struktural:**
+  - `spk/veto.py`: Menambahkan `SESSION VIOLENCE GUARD` sebagai Hard Veto mutlak. Veto `Struct-Session` saat waterfall drop (-$8 ke bawah) atau rocket rally (+8 ke atas) tidak boleh didemosi ke soft penalty dalam kondisi apa pun.
+  - `execution/order_manager.py`: Memindahkan penjaga `session_waterfall_bear` & `session_waterfall_bull` ke gerbang teratas `execute()`, memblokir seluruh entry counter-trend (initial, wave continuation, maupun rescue).
+  - `core/wave_engine.py`: Menambahkan aturan **Single-Shot Counter-Trend**. Jika gelombang berlawanan dengan arah HTF/sesi/regime, `can_chain` otomatis disetel `False` setelah Trade #1 selesai (`chain_count >= 1`), mencegah re-entry FOMO di pucuk pullback.
+
+**File tersentuh**
+- `spk/veto.py` — Hard session violence guard untuk mencegah demosi veto waterfall/rocket.
+- `execution/order_manager.py` — Universal session waterfall guard di gerbang teratas execute().
+- `core/wave_engine.py` — Single-shot restriction untuk counter-trend waves.
+- `tests/test_wave_engine.py` — Unit test `test_wave_engine_blocks_counter_trend_chaining`.
+- `tests/test_spk_veto.py` — Unit test `test_session_waterfall_hard_veto_cannot_be_demoted`.
+- `docs/PROGRESS.md` — Dokumentasi kronologi, analisis akar masalah, dan solusi arsitektur.
+
+**Verifikasi**
+- `pytest tests/test_execution.py tests/test_spk_veto.py tests/test_wave_engine.py tests/test_structural_guard.py -q` → 77 passed.
+- Deployment ke VPS server (`100.114.150.48`), restart `gs-bot` dan `gs-bot-lab`, verifikasi health check dan container running.
+
+---
+
 ## 2026-10-22 — Universal Catastrophic Gap Pips-Aware Protection (Akun 1 & Akun 2)
 
 **Phase / Area:** In-Flight Risk Management / Anti-Mati Surai Satpam Berlayer  
