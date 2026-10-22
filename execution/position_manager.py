@@ -771,6 +771,8 @@ class PositionManager:
         current_bid: float | None = None,
         current_ask: float | None = None,
         context: dict[str, Any] | None = None,
+        *,
+        now: datetime | None = None,
     ) -> list[str]:
         """Check and execute Basket Break-Even / Recovery Take-Profit.
 
@@ -781,6 +783,7 @@ class PositionManager:
         if len(positions) < 2:
             return []
 
+        now_dt = now or utcnow()
         basket = self.compute_basket(positions)
         target_tp = basket["target_tp"]
         dominant_side = basket["side"]
@@ -803,7 +806,6 @@ class PositionManager:
             if total_profit >= min_hedge_profit:
                 reached_target = True
             # Fast salvage: if hedged basket held >= 120s and net profit >= $0.50, unlock immediately
-            now_dt = utcnow()
             max_held = max(
                 (now_dt - (p.time or now_dt)).total_seconds() for p in positions
             )
@@ -849,7 +851,6 @@ class PositionManager:
                     reached_target = True
 
                 # Rescue Basket Fast Salvage: if held >= 90s and aggregate profit >= $0.80, unlock immediately
-                now_dt = utcnow()
                 max_held = max(
                     (now_dt - (p.time or now_dt)).total_seconds() for p in positions
                 )
@@ -897,16 +898,42 @@ class PositionManager:
             vol_multiplier = round(basket["total_volume"] * 1.50 * 100.0, 2)
             max_basket_loss_usd = min(max_clamp, max(min_clamp, max(base_calc, vol_multiplier)))
 
-            if total_profit <= -max_basket_loss_usd:
-                triggered = True
-                log.warning(
-                    "BASKET CATASTROPHIC CUT: Closing all %d %s positions collectively (vol=%.2f, net_loss=%.2f <= -$%.2f)",
-                    len(positions),
-                    dominant_side,
-                    basket["total_volume"],
-                    total_profit,
-                    max_basket_loss_usd,
+            timed_positions = [p for p in positions if p.time is not None]
+            if timed_positions:
+                youngest_held = min(
+                    (now_dt - p.time).total_seconds() for p in timed_positions if p.time is not None
                 )
+                min_hold = getattr(self.settings, "watchdog_min_hold_seconds", 60)
+                is_youngest_protected = youngest_held < min_hold
+            else:
+                youngest_held = 999.0
+                is_youngest_protected = False
+
+            catastrophic_override = total_profit <= -(max_basket_loss_usd * 1.75)
+
+            if total_profit <= -max_basket_loss_usd:
+                if is_youngest_protected and not catastrophic_override:
+                    log.info(
+                        "BASKET GRACE PERIOD SHIELD: Holding basket of %d %s positions — youngest layer #%d held %ds < %ds (net_loss=%.2f <= -$%.2f)",
+                        len(positions),
+                        dominant_side,
+                        len(positions),
+                        int(youngest_held),
+                        min_hold,
+                        total_profit,
+                        max_basket_loss_usd,
+                    )
+                else:
+                    triggered = True
+                    log.warning(
+                        "BASKET CATASTROPHIC CUT: Closing all %d %s positions collectively (vol=%.2f, net_loss=%.2f <= -$%.2f, youngest_held=%ds)",
+                        len(positions),
+                        dominant_side,
+                        basket["total_volume"],
+                        total_profit,
+                        max_basket_loss_usd,
+                        int(youngest_held),
+                    )
 
         if reached_target and not triggered:
             if not self.settings.basket_trailing_enabled:

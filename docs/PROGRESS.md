@@ -35,7 +35,42 @@ Aturan singkat:
 
 ---
 
-## 2026-10-22 — Akun 1 End-to-End Forensics, S/R De-Choke & Scalper Dominance Recalibration
+## 2026-10-22 — Premature Close Fix: Rescue Layer Grace Period Shield & Layering Spacing Deployment (Akun 1 & Akun 2)
+
+**Phase / Area:** Execution Engine / Multi-Entry Layering & Basket Protection  
+**Status:** Done & Deployed (Akun 1 `gs-bot` & Akun 2 `gs-bot-lab`)  
+
+**Yang dikerjakan**
+- **Investigasi Premature Close / Bug Petugas Exit:**
+  - Ticket 4325628028 (SELL 0.03 @ 4,046.34) dan Ticket 4325633756 (SELL 0.02 @ 4,048.81) tertutup serentak via `BASKET CATASTROPHIC CUT` pada net loss -$15.00.
+  - Layer 2 baru hidup selama 28 detik namun langsung terpotong tanpa kesempatan bernapas karena `PositionManager.manage_basket()` tidak memiliki grace period shield untuk layer termuda.
+  - Spacing Layer 2 ke Layer 1 terlalu rapat ($2.47 / ~25 pips) karena minimum distance default masih $2.00 (20 pips), menyebabkan akumulasi drawdown cepat pada noise pullback minor.
+  - Jarak entry awal Layer 1 terlalu dekat dengan support floor ($1.54) karena buffer S/R dinamis agresif masih mengizinkan entry hanya 15 pips dari batas support.
+- **Implementasi Grace Period Shield & Minimum Layer Spacing:**
+  - `execution/position_manager.py`:
+    - Menambahkan parameter waktu `now: datetime | None = None` pada `manage_basket()`.
+    - Mengimplementasikan `is_youngest_protected`: Jika layer termuda berumur $< 60$ detik (`min_hold_seconds`), basket cut ditunda untuk memberi ruang napas bagi recovery layer, kecuali jika terjadi gap ekstrem/flash crash ($net\_loss \le 1.75 \times max\_basket\_loss$).
+  - `execution/order_manager.py`:
+    - Memperlebar minimum spacing multi-entry menjadi $\ge 30-35$ pips ($3.00 - $3.50), mencegah penumpukan posisi dalam cluster sempit.
+    - Menyesuaikan batas buffer S/R dinamis agresif ke 10–22 pips (`dynamic_sr_min_buffer=1.00`, `dynamic_sr_max_buffer=2.20`).
+- **Penyelarasan & Deploy Kedua Akun (`gs-bot` & `gs-bot-lab`):**
+  - Mengompensasikan perbaikan ke file konfigurasi dan container kedua bot di server VPS.
+  - Restart container `gs-bot` (Akun 1) dan `gs-bot-lab` (Akun 2).
+
+**File tersentuh**
+- `execution/position_manager.py` — Shield grace period 60s untuk layer termuda di `manage_basket()`
+- `execution/order_manager.py` — Minimum multi-entry distance 30-35 pips dan calibrasi buffer S/R
+- `tests/test_execution.py` — Unit test `test_basket_youngest_layer_grace_period_shield`
+- `docs/PROGRESS.md` — Dokumentasi kronologis insiden dan resolusi
+
+**Verifikasi**
+- `pytest tests/test_execution.py -k test_basket_youngest_layer_grace_period_shield` → 1 passed
+- `pytest tests/test_spk_veto.py tests/test_technical_division.py tests/test_execution.py tests/test_wave_engine.py tests/test_structural_guard.py tests/test_structure_division.py tests/test_timeframe_division.py tests/test_spk_voting.py tests/test_risk_division.py tests/test_spk_core_division.py` → 208 passed (100% green)
+
+**Catatan / Next**
+- Bot kini terlindungi dari pembunuhan dini (*premature slaughter*) pada layer rescue saat pasar berfluktuasi sesaat setelah entry.
+
+
 
 **Phase / Area:** Account 1 Optimization / S/R Gate Calibration / Scalper Dominance  
 **Status:** Done & Active (Akun 1 `gs-bot`)  

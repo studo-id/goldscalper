@@ -822,5 +822,37 @@ async def test_dynamic_basket_catastrophic_cut_anchored_to_juggler() -> None:
     assert "basket_cut_closed" in actions_def
 
 
+async def test_basket_youngest_layer_grace_period_shield() -> None:
+    """Verify that newly opened rescue layer is protected by 60s grace period and not premature-cut."""
+    from datetime import datetime, timedelta, timezone
+    client = MockMT5Client()
+    pm = PositionManager(client=client, settings=settings)
+
+    now = datetime(2026, 10, 22, 16, 25, 41, tzinfo=timezone.utc)
+    # pos1 opened 65s ago, pos2 opened 28s ago (< 60s grace period)
+    pos1 = Position(
+        ticket=9001, symbol="XAUUSD", side=SIDE_SELL, volume=0.03,
+        price_open=4046.34, price_current=4050.04, profit=-11.10,
+        time=now - timedelta(seconds=65),
+    )
+    pos2 = Position(
+        ticket=9002, symbol="XAUUSD", side=SIDE_SELL, volume=0.02,
+        price_open=4048.81, price_current=4050.04, profit=-2.50,
+        time=now - timedelta(seconds=28),
+    )
+    pos2.comment = "RESCUE L2 SELL"
+    positions = [pos1, pos2]
+
+    ctx = {"daily_pnl_pct": 1.0, "live_avg_win": 2.50}
+    # Net loss is -$13.60 (or -$15.00 with fees), but youngest is only 28s old -> SHIELDED!
+    actions = await pm.manage_basket(positions, current_bid=4050.04, current_ask=4050.24, now=now, context=ctx)
+    assert "basket_cut_closed" not in actions
+
+    # Fast forward: youngest layer is now 65s old (>= 60s grace period) -> Now eligible for cut!
+    now_later = now + timedelta(seconds=40)
+    actions_later = await pm.manage_basket(positions, current_bid=4050.04, current_ask=4050.24, now=now_later, context=ctx)
+    assert "basket_cut_closed" in actions_later
+
+
 
 

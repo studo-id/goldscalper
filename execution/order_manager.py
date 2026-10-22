@@ -280,8 +280,8 @@ class OrderManager:
                         # and strictly honors AGENTS.md Juggler Directive (>= 30-35 pips separation)
                         min_distance_usd = 3.00
                     else:
-                        # In NORMAL/GROWTH mode: spacing 20 pips ($2.00)
-                        min_distance_usd = max(2.00, min_distance_usd)
+                        # In NORMAL/GROWTH mode: spacing >= 30 pips ($3.00)
+                        min_distance_usd = max(3.00, min_distance_usd)
                 else:
                     # When state is None (unit tests), check stalled flag
                     any_stalled = any(
@@ -596,9 +596,9 @@ class OrderManager:
 
         is_aggressive = getattr(self.settings, "aggressive_scalper", False)
         if is_aggressive:
-            min_b = float(getattr(self.settings, "dynamic_sr_min_buffer", 0.60))
-            max_b = float(getattr(self.settings, "dynamic_sr_max_buffer", 1.50))
-            ratio = float(getattr(self.settings, "dynamic_sr_buffer_ratio", 0.10))
+            min_b = float(getattr(self.settings, "dynamic_sr_min_buffer", 1.00))
+            max_b = float(getattr(self.settings, "dynamic_sr_max_buffer", 2.20))
+            ratio = float(getattr(self.settings, "dynamic_sr_buffer_ratio", 0.15))
         elif daily_pnl_pct < 0 or (rem_target is not None and 0 < rem_target <= 20.0):
             # DEFENSE mode or Finish Line: wider buffer to keep safe distance from ceilings & floors
             min_b = 2.00
