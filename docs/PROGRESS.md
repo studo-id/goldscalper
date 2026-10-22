@@ -35,6 +35,38 @@ Aturan singkat:
 
 ---
 
+## 2026-10-22 — Review Transaksi Sesi Dini Hari & Observasi Live Trading 24 Jam Akun Cent
+
+**Phase / Area:** Phase 14 / Live Production Observation & Micro-Scalping Review  
+**Status:** In Progress (Full-Day Observation Running)  
+
+**Yang dikerjakan**
+- **Audit & Analisis Transaksi Sesi Dini Hari (00:00 - 07:00 WIB):**
+  - Mengaudit 30 transaksi tertutup pertama pasca-deployment sinkronisasi saldo Cent (USC) semalam.
+  - Hasil metrik: **30 Trades, 26 Wins, 4 Losses (Win Rate 86.7%)**.
+  - **Profit Factor: 1.712** (Target $\ge 1.50$ tercapai), Max Drawdown sangat rendah (**0.22%**).
+  - Realized PnL: **+19.80 USC**, Gross Profit: **+47.60 USC**, Gross Loss: **-27.80 USC**.
+  - Total Traded Volume: **1.40 Lots** $\to$ Estimasi IB Rebate Cashback: **+8.40 USC** (@ 6.00 USC/lot).
+  - Total Net Yield: **+28.20 USC**.
+- **Evaluasi Eksekusi & Disiplin Proteksi Resiko:**
+  - Evaluasi 4 transaksi rugi: Kerugian terbesar (-13.70 USC pada lot 0.04) dipicu pergerakan harga menembus batas M15 Fib 78.6% (4134.01), diintervensi oleh *Satpam Structural Invalidation Cut* sebelum menyentuh hard SL.
+  - Mekanisme *Smart Cooldown Wave Engine* (90s) dan *M1 Candle Cooldown* (60s) terbukti bekerja otomatis memutus *loss clustering*.
+  - Pemulihan tajam: Terjadi *Win Streak* 9 trade berturut-turut pada sesi subuh (05:06 - 05:37 WIB) dengan akumulasi profit +15.50 USC yang langsung melampaui kerugian cutloss.
+- **Rencana & Standar Pengamatan Seharian Penuh:**
+  - Bot dibiarkan beroperasi penuh (*hands-free*) melintasi Sesi London (14:00 - 18:00 WIB) dan Sesi New York (19:30 - 23:00 WIB).
+  - Parameter ditahan statik (*no mid-flight tweaks*) untuk memastikan keaslian dataset statistik.
+  - Review komprehensif dijadwalkan malam ini pukul 22:00 - 23:00 WIB pasca-penutupan volatilitas New York.
+
+**File tersentuh**
+- [docs/PROGRESS.md](file:///c:/Users/STUDO/Documents/Project/APPS/trading/GoldScalper/docs/PROGRESS.md) — pencatatan milestone observasi 24 jam dan worklog pagi
+- [scratch/analyze_today.py](file:///c:/Users/STUDO/Documents/Project/APPS/trading/GoldScalper/scratch/analyze_today.py) — script audit analitika transaksi realtime
+
+**Verifikasi**
+- Endpoint `/api/performance?period=today`: 30 trades, winrate 0.8667, PF 1.712, total_pnl 19.8 USC, currency USC.
+- Endpoint `/api/status` & MT5 Bridge: balance 6379.12 USC, equity 6379.12 USC, open trades 0 (flat), algo_trading True.
+
+---
+
 ## 2026-10-21 — Sinkronisasi Menyeluruh Saldo & Satuan Mata Uang (USC) di Seluruh Halaman Dashboard (Cockpit, Agents, Portfolio, Settings)
 
 **Phase / Area:** Phase 14 / Frontend Architecture & Portfolio Aggregator  
