@@ -58,6 +58,7 @@ Aturan singkat:
 - **Verifikasi UI Cockpit & Autentikasi:**
   - Mendaftarkan user admin lab baru di endpoint `/api/auth/register`.
   - Memverifikasi endpoint `/api/performance` membaca saldo awal tepat `1,108.00 USC`.
+  - **Perbaikan Autentikasi Candlestick Chart:** Memperbaiki module import query param pada `chart.js` dan menambahkan dynamic fallback token dari `localStorage` di `api()` sehingga fetch `/api/candles` selalu menyertakan token aktif dan chart candlestick langsung render mulus.
 
 **File tersentuh**
 - `docker-compose.yml` — Menambahkan service `bot-lab` (port 9091, `.env.lab`, healthcheck 9091).
