@@ -35,6 +35,24 @@ Aturan singkat:
 
 ---
 
+## 2026-10-23 — Kalibrasi Catastrophic Gap Cut Phase 0 & Proteksi Satpam Struktur (Eliminasi Premature Cut di Bawah 60s)
+
+**Phase / Area:** Execution Layer, Phase 0 Noise Grace Period & Satpam Structural Protection  
+**Status:** Done & Deployed (Akun 1 `gs-bot` & Akun 2 `gs-bot-lab`)  
+
+**Yang dikerjakan**
+- **Forensik Premature Exit di Detik ke-40 dan 53:**
+  - Tiket `4329595412` (BUY 0.02) di-cut di detik ke-39 (loss -$5.90), dan tiket `4329510297` (SELL 0.03) di-cut di detik ke-53 (loss -$6.20).
+  - *Akar Masalah:* Rule `JUGGLER CATASTROPHIC GAP CUT` di Phase 0 (0-60 detik) awalnya dipasang batas dinamis yang terikat pada `HARD_LOSS_CLAMP_USD`. Di Akun 2 Lab yang memakai clamp mini ($3.50), ambang batas flash crash otomatis tertekan menjadi sangat kecil (hanya -$5.44 s/d -$6.00). Akibatnya, retracement normal 20-29 pips pada XAUUSD (yang merupakan fluktuasi wick M1 yang sehat) salah dideteksi sebagai "catastrophic flash crash" dan dipotong panik sebelum candle 1-menit selesai terbentuk di detik ke-60!
+- **Solusi & Rekalibrasi:**
+  - `execution/position_manager.py`:
+    - Mengintegrasikan evaluasi Satpam Struktur (`is_structure_holding = structural_eval and not structural_eval.is_hard_breached`): Selama garis struktur (Line X / support) belum tertembus secara hard-breach, sistem **DILARANG PANIK CUT** selama masa pembentukan candle M1 (0-60 detik).
+    - Menetapkan ambang batas *Catastrophic Gap Cut* murni untuk kejadian abnormal ekstrim (min $10.00 USD atau 30-35 pips), membebaskan wick normal 20-25 pips dari ancaman premature cut.
+- **Verifikasi:**
+  - `pytest tests/test_execution.py tests/test_macro_separation.py -v` → 40 passed in 0.37s.
+
+---
+
 ## 2026-10-23 — Forensik & Resolusi Darurat Akun 2 (Lab): Cut 1-Detik Akibat Invalidation Static PDL & Pemulihan Veto D1/H4
 
 **Phase / Area:** Execution Layer, Macro SL Invalidation Guard & Account 2 Lab Recovery  

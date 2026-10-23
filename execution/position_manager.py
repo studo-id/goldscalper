@@ -311,32 +311,35 @@ class PositionManager:
                     log.warning("StructuralGuard evaluation failed for ticket %s: %s", pos.ticket, exc)
 
             # 2. Phase 0: Noise & M1 Candle Formation Grace Period (0 - 60s)
-            # Catastrophic gap represents genuine flash crash, strictly capped to prevent $17-$18 flash bleed
+            # Catastrophic gap represents genuine flash crash (e.g. news cliff-dive >= 40-50 pips / >= $12 USD),
+            # strictly separating real flash crashes from normal 20-25 pip noise wicks.
             min_hold = getattr(s, "watchdog_min_hold_seconds", 60)
             is_htf_supporting = htf_bias.get("verdict") in ("SUPPORTING", "HTF_SUPPORTING")
-            gap_pips = 28.0 if is_htf_supporting else 20.0
+            gap_pips = 35.0 if is_htf_supporting else 30.0
             pip_val = float(pos.volume * 10.0)
-            catastrophic_gap_ceiling = round(max_clamp_ceiling * 1.40, 2)
-            catastrophic_gap_usd = min(catastrophic_gap_ceiling, max(round(max_clamp_ceiling * 1.15, 2), round(gap_pips * pip_val, 2)))
+            catastrophic_gap_usd = max(10.0, round(gap_pips * pip_val, 2))
 
-            if held < min_hold and current_loss > -catastrophic_gap_usd:
-                pass  # Grace period: allow 1 full M1 candle (60s) to form cleanly without wick panic
+            # If structure is confirmed holding (Line X / S&R intact), NEVER panic cut during 0-60s wick formation!
+            is_structure_holding = (structural_eval is not None and not structural_eval.is_hard_breached)
 
-            elif held < min_hold and current_loss <= -catastrophic_gap_usd:
-                log.warning(
-                    "JUGGLER CATASTROPHIC GAP CUT: Cutting ticket %s (%s %.2f, loss=%.2f <= -$%.2f flash breach within %ds, HTF=%s)",
-                    pos.ticket,
-                    pos.side,
-                    pos.volume,
-                    current_loss,
-                    catastrophic_gap_usd,
-                    int(held),
-                    htf_bias.get("verdict", "NEUTRAL"),
-                )
-                await self.client.close_position(pos.ticket, price=price)
-                self.untrack(pos.ticket)
-                actions.append("juggler_catastrophic_gap_cut")
-                return actions
+            if held < min_hold:
+                if is_structure_holding and current_loss > -catastrophic_gap_usd:
+                    pass  # Grace period: allow 1 full M1 candle (60s) to form cleanly while structure holds
+                elif current_loss <= -catastrophic_gap_usd:
+                    log.warning(
+                        "JUGGLER CATASTROPHIC GAP CUT: Cutting ticket %s (%s %.2f, loss=%.2f <= -$%.2f flash breach within %ds, HTF=%s)",
+                        pos.ticket,
+                        pos.side,
+                        pos.volume,
+                        current_loss,
+                        catastrophic_gap_usd,
+                        int(held),
+                        htf_bias.get("verdict", "NEUTRAL"),
+                    )
+                    await self.client.close_position(pos.ticket, price=price)
+                    self.untrack(pos.ticket)
+                    actions.append("juggler_catastrophic_gap_cut")
+                    return actions
 
             # --- Macro D1 Safety Net / Stop Loss Invalidation ---
             # If enabled, protects against catastrophic macro trend day breakdowns:
