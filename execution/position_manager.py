@@ -310,221 +310,190 @@ class PositionManager:
                 except Exception as exc:  # noqa: BLE001
                     log.warning("StructuralGuard evaluation failed for ticket %s: %s", pos.ticket, exc)
 
-            # 2. Phase 0: Noise & M1 Candle Formation Grace Period (0 - 60s)
-            # Catastrophic gap represents genuine flash crash (e.g. news cliff-dive >= 40-50 pips / >= $12 USD),
-            # strictly separating real flash crashes from normal 20-25 pip noise wicks.
+            # 2. Phase 0: Strict 60-Second Cutloss Immunity (Noise & M1 Formation Grace Period)
+            # Under 60 seconds (held < min_hold), positions are 100% immune to all cutloss mechanisms.
+            # No clamp cut, no gap cut, no panic cut. (Take Profit remains unrestricted and instant).
             min_hold = getattr(s, "watchdog_min_hold_seconds", 60)
-            is_htf_supporting = htf_bias.get("verdict") in ("SUPPORTING", "HTF_SUPPORTING")
-            gap_pips = 35.0 if is_htf_supporting else 30.0
-            pip_val = float(pos.volume * 10.0)
-            catastrophic_gap_usd = max(10.0, round(gap_pips * pip_val, 2))
-
-            # If structure is confirmed holding (Line X / S&R intact), NEVER panic cut during 0-60s wick formation!
             is_structure_holding = (structural_eval is not None and not structural_eval.is_hard_breached)
-
-            if held < min_hold:
-                if is_structure_holding and current_loss > -catastrophic_gap_usd:
-                    pass  # Grace period: allow 1 full M1 candle (60s) to form cleanly while structure holds
-                elif current_loss <= -catastrophic_gap_usd:
-                    log.warning(
-                        "JUGGLER CATASTROPHIC GAP CUT: Cutting ticket %s (%s %.2f, loss=%.2f <= -$%.2f flash breach within %ds, HTF=%s)",
-                        pos.ticket,
-                        pos.side,
-                        pos.volume,
-                        current_loss,
-                        catastrophic_gap_usd,
-                        int(held),
-                        htf_bias.get("verdict", "NEUTRAL"),
-                    )
-                    await self.client.close_position(pos.ticket, price=price)
-                    self.untrack(pos.ticket)
-                    actions.append("juggler_catastrophic_gap_cut")
-                    return actions
-
-            # --- Macro D1 Safety Net / Stop Loss Invalidation ---
-            # If enabled, protects against catastrophic macro trend day breakdowns:
-            # - BUY position is invalidated if current price breaches below Previous Day Low (PDL - $0.50 buffer)
-            # - SELL position is invalidated if current price breaches above Previous Day High (PDH + $0.50 buffer)
-            if s.macro_d1_sl_invalidation_enabled:
-                d1_pdh = None
-                d1_pdl = None
-                if state_obj and getattr(state_obj, "extra", None) and isinstance(state_obj.extra, dict):
-                    d1_pdh = state_obj.extra.get("d1_pdh")
-                    d1_pdl = state_obj.extra.get("d1_pdl")
-                if (d1_pdh is None or d1_pdl is None) and state_obj and getattr(state_obj, "frames", None):
-                    d1_bars = state_obj.frames.get("D1")
-                    if d1_bars and d1_bars.n >= 1:
-                        prev = -2 if d1_bars.n >= 2 else -1
-                        d1_pdh = d1_bars.highs[prev]
-                        d1_pdl = d1_bars.lows[prev]
-
-                d1_cut = False
-                d1_cut_reason = ""
-                d1_buffer = 0.50  # 5 pips buffer to prevent false wick trigger
-                if pos.is_long and d1_pdl is not None and pos.price_open >= d1_pdl and price < (d1_pdl - d1_buffer):
-                    d1_cut = True
-                    d1_cut_reason = f"Price {price:.2f} broken below Previous Day Low (PDL {d1_pdl:.2f})"
-                elif not pos.is_long and d1_pdh is not None and pos.price_open <= d1_pdh and price > (d1_pdh + d1_buffer):
-                    d1_cut = True
-                    d1_cut_reason = f"Price {price:.2f} broken above Previous Day High (PDH {d1_pdh:.2f})"
-
-                if d1_cut:
-                    log.warning(
-                        "MACRO D1 SL INVALIDATION CUT: Cutting ticket %s (%s %.2f, loss=%.2f) — %s",
-                        pos.ticket,
-                        pos.side,
-                        pos.volume,
-                        current_loss,
-                        d1_cut_reason,
-                    )
-                    await self.client.close_position(pos.ticket, price=price)
-                    self.untrack(pos.ticket)
-                    actions.append("macro_d1_sl_invalidation_cut")
-                    return actions
-
-            # 3. Phase 1: Satpam Structural Invalidation (Anti-Wick Shield Protected)
-            # Cut only on confirmed hard breach (not on minor wick probe < 45s)
-            if structural_eval is not None and structural_eval.is_hard_breached:
-                log.warning(
-                    "SATPAM STRUCTURAL INVALIDATION CUT: Cutting ticket %s (%s %.2f, loss=%.2f) — %s",
-                    pos.ticket,
-                    pos.side,
-                    pos.volume,
-                    current_loss,
-                    structural_eval.reasoning,
-                )
-                await self.client.close_position(pos.ticket, price=price)
-                self.untrack(pos.ticket)
-                actions.append("satpam_structural_cut")
-                return actions
-
-
-            elif (
-                structural_eval is None
-                and s.watchdog_early_invalidation_enabled
-                and held >= min_hold
-                and current_loss <= -max(4.0, round(effective_clamp_usd * s.watchdog_early_loss_ratio, 2))
-                and watchdogs["invalidation_alert"]
-            ):
-                log.warning(
-                    "JUGGLER WATCHDOG EARLY INVALIDATION CUT: Cutting ticket %s (%s %.2f, loss=%.2f <= -$%.2f) — Satpam M1/M5 adverse signal (M1=%s, M5=%s)",
-                    pos.ticket,
-                    pos.side,
-                    pos.volume,
-                    current_loss,
-                    round(effective_clamp_usd * s.watchdog_early_loss_ratio, 2),
-                    watchdogs["m1"]["verdict"],
-                    watchdogs["m5"]["verdict"],
-                )
-                await self.client.close_position(pos.ticket, price=price)
-                self.untrack(pos.ticket)
-                actions.append("watchdog_early_invalidation_cut")
-                return actions
-
-            # 4. Phase 2: HTF Trend Breakdown (Early Cut — Do NOT Hope!)
             is_htf_supporting = htf_bias.get("verdict") in ("SUPPORTING", "HTF_SUPPORTING")
             is_htf_opposing = htf_bias.get("verdict") in ("OPPOSING", "HTF_OPPOSING")
 
-            if (
-                held >= min_hold
-                and current_loss <= -(effective_clamp_usd * 0.65)
-                and is_htf_opposing
-                and (structural_eval is None or structural_eval.is_breached or current_loss <= -(effective_clamp_usd * 0.85))
-            ):
-                log.warning(
-                    "JUGGLER HTF BREAKDOWN CUT: Ticket %s (%s %.2f, loss=%.2f <= -$%.2f) — HTF scouts opposing: %s",
-                    pos.ticket,
-                    pos.side,
-                    pos.volume,
-                    current_loss,
-                    round(effective_clamp_usd * 0.65, 2),
-                    htf_bias["opposing"],
-                )
-                await self.client.close_position(pos.ticket, price=price)
-                self.untrack(pos.ticket)
-                actions.append("juggler_htf_breakdown_cut")
-                return actions
+            if held < min_hold:
+                pass  # Strict cutloss immunity under 60 seconds
+            else:
+                # Satpam Berlayer Drone View (>= 60s):
+                # Evaluates structural integrity, multi-timeframe S&R, and dynamic clamps.
 
-            # 5. Phase 3: Dynamic Hard Clamp & Structural Fortress Shield
-            elif s.hard_loss_clamp_enabled and held >= min_hold and current_loss <= -abs(effective_clamp_usd):
-                is_in_rescue_basket = bool(ctx.get("in_rescue_basket", False))
-                if is_in_rescue_basket:
-                    pass  # Collective basket management takes precedence
-                else:
-                    htf_reversal_clamp = round(min(max_clamp_ceiling * 1.85, max(12.0, effective_clamp_usd * 1.75)), 2)
-                    reversal_clamp = htf_reversal_clamp if is_htf_supporting else round(effective_clamp_usd * 1.25, 2)
-                    is_structure_holding = (structural_eval is not None and not structural_eval.is_breached)
-                    is_m5_supporting = watchdogs.get("m5", {}).get("verdict") in ("SUPPORTING", "HTF_SUPPORTING")
-                    can_reversal_hold = is_structure_holding or is_htf_supporting or (is_m5_supporting and held < 90)
+                # --- Macro D1 Safety Net / Stop Loss Invalidation ---
+                if s.macro_d1_sl_invalidation_enabled:
+                    d1_pdh = None
+                    d1_pdl = None
+                    if state_obj and getattr(state_obj, "extra", None) and isinstance(state_obj.extra, dict):
+                        d1_pdh = state_obj.extra.get("d1_pdh")
+                        d1_pdl = state_obj.extra.get("d1_pdl")
+                    if (d1_pdh is None or d1_pdl is None) and state_obj and getattr(state_obj, "frames", None):
+                        d1_bars = state_obj.frames.get("D1")
+                        if d1_bars and d1_bars.n >= 1:
+                            prev = -2 if d1_bars.n >= 2 else -1
+                            d1_pdh = d1_bars.highs[prev]
+                            d1_pdl = d1_bars.lows[prev]
 
-                    if can_reversal_hold and current_loss > -reversal_clamp:
-                        # Allow bounce while price is safely fortified by Line X or supported by HTF
-                        pass
-                    else:
-                        clamp_reason = "STRUCTURAL_BREACH" if (structural_eval and structural_eval.is_breached) else ("HTF_EXHAUSTED" if is_htf_supporting else ("M5_EXHAUSTED" if is_m5_supporting else htf_bias.get("verdict", "NEUTRAL")))
+                    d1_cut = False
+                    d1_cut_reason = ""
+                    d1_buffer = 0.50  # 5 pips buffer to prevent false wick trigger
+                    if pos.is_long and d1_pdl is not None and pos.price_open >= d1_pdl and price < (d1_pdl - d1_buffer):
+                        d1_cut = True
+                        d1_cut_reason = f"Price {price:.2f} broken below Previous Day Low (PDL {d1_pdl:.2f})"
+                    elif not pos.is_long and d1_pdh is not None and pos.price_open <= d1_pdh and price > (d1_pdh + d1_buffer):
+                        d1_cut = True
+                        d1_cut_reason = f"Price {price:.2f} broken above Previous Day High (PDH {d1_pdh:.2f})"
+
+                    if d1_cut:
                         log.warning(
-                            "JUGGLER DYNAMIC CLAMP: Cutting ticket %s (%s %.2f, loss=%.2f <= -$%.2f [HTF=%s (%s), avg_win $%.2f])",
+                            "MACRO D1 SL INVALIDATION CUT: Cutting ticket %s (%s %.2f, loss=%.2f) — %s",
                             pos.ticket,
                             pos.side,
                             pos.volume,
                             current_loss,
-                            effective_clamp_usd if not can_reversal_hold else reversal_clamp,
-                            htf_bias.get("verdict"),
-                            clamp_reason,
-                            live_avg_win,
+                            d1_cut_reason,
                         )
                         await self.client.close_position(pos.ticket, price=price)
                         self.untrack(pos.ticket)
-                        actions.append("juggler_dynamic_clamp")
+                        actions.append("macro_d1_sl_invalidation_cut")
                         return actions
 
-            # 6. Phase 4: Structural Hold vs Duration Stagnation Cut
-            # If price is safely above/below Line X, DO NOT CUT ON SECONDS! Wait for the bounce!
-            elif state.opened_at is not None and held >= 90:
-                duration_loss_limit = max(2.50, round(effective_clamp_usd * 0.60, 2))
-                is_structure_holding = (structural_eval is not None and not structural_eval.is_breached)
-                htf_reversal_clamp = max(16.0, round(effective_clamp_usd * 2.25, 2), round(pos.volume * 3.50 * 100.0, 2))
-                reversal_clamp = htf_reversal_clamp if is_htf_supporting else round(effective_clamp_usd * 1.40, 2)
+                # --- Phase 1: Satpam Structural Invalidation (Confirmed Hard Breach) ---
+                if structural_eval is not None and structural_eval.is_hard_breached:
+                    log.warning(
+                        "SATPAM STRUCTURAL INVALIDATION CUT: Cutting ticket %s (%s %.2f, loss=%.2f) — %s",
+                        pos.ticket,
+                        pos.side,
+                        pos.volume,
+                        current_loss,
+                        structural_eval.reasoning,
+                    )
+                    await self.client.close_position(pos.ticket, price=price)
+                    self.untrack(pos.ticket)
+                    actions.append("satpam_structural_cut")
+                    return actions
 
-                if is_structure_holding and current_loss > -reversal_clamp:
-                    # SATPAM: Hold to bounce! Market is testing S&R / Fib Golden Pocket.
-                    pass
                 elif (
-                    current_loss <= -duration_loss_limit
-                    and htf_bias["verdict"] != "HTF_SUPPORTING"
-                    and (watchdogs["m1"]["verdict"] == "OPPOSING" or watchdogs["m5"]["verdict"] == "OPPOSING")
+                    structural_eval is None
+                    and s.watchdog_early_invalidation_enabled
+                    and current_loss <= -max(4.0, round(effective_clamp_usd * s.watchdog_early_loss_ratio, 2))
+                    and watchdogs["invalidation_alert"]
                 ):
-                    log.info(
-                        "JUGGLER DURATION-LOSS CUT: Ticket %s held %ds with loss=%.2f <= -$%.2f (momentum stalled)",
+                    log.warning(
+                        "JUGGLER WATCHDOG EARLY INVALIDATION CUT: Cutting ticket %s (%s %.2f, loss=%.2f <= -$%.2f) — Satpam M1/M5 adverse signal (M1=%s, M5=%s)",
                         pos.ticket,
-                        int(held),
+                        pos.side,
+                        pos.volume,
                         current_loss,
-                        duration_loss_limit,
+                        round(effective_clamp_usd * s.watchdog_early_loss_ratio, 2),
+                        watchdogs["m1"]["verdict"],
+                        watchdogs["m5"]["verdict"],
                     )
                     await self.client.close_position(pos.ticket, price=price)
                     self.untrack(pos.ticket)
-                    actions.append("juggler_duration_loss_cut")
+                    actions.append("watchdog_early_invalidation_cut")
                     return actions
 
-            # 7. Phase 5: Time-Decay Loss Cut (>180s)
-            elif state.opened_at is not None and held >= s.loss_time_decay_seconds:
-                is_structure_holding = (structural_eval is not None and not structural_eval.is_breached)
-                htf_reversal_clamp = max(16.0, round(effective_clamp_usd * 2.25, 2), round(pos.volume * 3.50 * 100.0, 2))
-                reversal_clamp = htf_reversal_clamp if is_htf_supporting else round(effective_clamp_usd * 1.40, 2)
-                if is_structure_holding and current_loss > -reversal_clamp:
-                    pass
-                elif current_loss <= -abs(s.loss_time_decay_min_loss_usd):
-                    log.info(
-                        "JUGGLER TIME-DECAY CUT: Cutting stalled losing ticket %s (held %ds, loss=%.2f <= -$%.2f)",
+                # --- Phase 2: HTF Trend Breakdown (Early Cut — Do NOT Hope!) ---
+                if (
+                    current_loss <= -(effective_clamp_usd * 0.65)
+                    and is_htf_opposing
+                    and (structural_eval is None or structural_eval.is_breached or current_loss <= -(effective_clamp_usd * 0.85))
+                ):
+                    log.warning(
+                        "JUGGLER HTF BREAKDOWN CUT: Ticket %s (%s %.2f, loss=%.2f <= -$%.2f) — HTF scouts opposing: %s",
                         pos.ticket,
-                        int(held),
+                        pos.side,
+                        pos.volume,
                         current_loss,
-                        s.loss_time_decay_min_loss_usd,
+                        round(effective_clamp_usd * 0.65, 2),
+                        htf_bias["opposing"],
                     )
                     await self.client.close_position(pos.ticket, price=price)
                     self.untrack(pos.ticket)
-                    actions.append("juggler_time_decay_cut")
+                    actions.append("juggler_htf_breakdown_cut")
                     return actions
+
+                # --- Phase 3: Dynamic Hard Clamp & Structural Fortress Shield ---
+                elif s.hard_loss_clamp_enabled and current_loss <= -abs(effective_clamp_usd):
+                    is_in_rescue_basket = bool(ctx.get("in_rescue_basket", False))
+                    if is_in_rescue_basket:
+                        pass  # Collective basket management takes precedence
+                    else:
+                        htf_reversal_clamp = round(min(max_clamp_ceiling * 1.85, max(12.0, effective_clamp_usd * 1.75)), 2)
+                        reversal_clamp = htf_reversal_clamp if is_htf_supporting else round(effective_clamp_usd * 1.25, 2)
+                        is_m5_supporting = watchdogs.get("m5", {}).get("verdict") in ("SUPPORTING", "HTF_SUPPORTING")
+                        can_reversal_hold = is_structure_holding or is_htf_supporting or (is_m5_supporting and held < 90)
+
+                        if can_reversal_hold and current_loss > -reversal_clamp:
+                            # Allow bounce while price is safely fortified by Line X or supported by HTF
+                            pass
+                        else:
+                            clamp_reason = "STRUCTURAL_BREACH" if (structural_eval and structural_eval.is_breached) else ("HTF_EXHAUSTED" if is_htf_supporting else ("M5_EXHAUSTED" if is_m5_supporting else htf_bias.get("verdict", "NEUTRAL")))
+                            log.warning(
+                                "JUGGLER DYNAMIC CLAMP: Cutting ticket %s (%s %.2f, loss=%.2f <= -$%.2f [HTF=%s (%s), avg_win $%.2f])",
+                                pos.ticket,
+                                pos.side,
+                                pos.volume,
+                                current_loss,
+                                effective_clamp_usd if not can_reversal_hold else reversal_clamp,
+                                htf_bias.get("verdict"),
+                                clamp_reason,
+                                live_avg_win,
+                            )
+                            await self.client.close_position(pos.ticket, price=price)
+                            self.untrack(pos.ticket)
+                            actions.append("juggler_dynamic_clamp")
+                            return actions
+
+                # --- Phase 4: Structural Hold vs Duration Stagnation Cut ---
+                elif state.opened_at is not None and held >= 90:
+                    duration_loss_limit = max(2.50, round(effective_clamp_usd * 0.60, 2))
+                    htf_reversal_clamp = max(16.0, round(effective_clamp_usd * 2.25, 2), round(pos.volume * 3.50 * 100.0, 2))
+                    reversal_clamp = htf_reversal_clamp if is_htf_supporting else round(effective_clamp_usd * 1.40, 2)
+
+                    if is_structure_holding and current_loss > -reversal_clamp:
+                        # SATPAM: Hold to bounce! Market is testing S&R / Fib Golden Pocket.
+                        pass
+                    elif (
+                        current_loss <= -duration_loss_limit
+                        and htf_bias["verdict"] != "HTF_SUPPORTING"
+                        and (watchdogs["m1"]["verdict"] == "OPPOSING" or watchdogs["m5"]["verdict"] == "OPPOSING")
+                    ):
+                        log.info(
+                            "JUGGLER DURATION-LOSS CUT: Ticket %s held %ds with loss=%.2f <= -$%.2f (momentum stalled)",
+                            pos.ticket,
+                            int(held),
+                            current_loss,
+                            duration_loss_limit,
+                        )
+                        await self.client.close_position(pos.ticket, price=price)
+                        self.untrack(pos.ticket)
+                        actions.append("juggler_duration_loss_cut")
+                        return actions
+
+                # --- Phase 5: Time-Decay Loss Cut (>180s) ---
+                elif state.opened_at is not None and held >= s.loss_time_decay_seconds:
+                    htf_reversal_clamp = max(16.0, round(effective_clamp_usd * 2.25, 2), round(pos.volume * 3.50 * 100.0, 2))
+                    reversal_clamp = htf_reversal_clamp if is_htf_supporting else round(effective_clamp_usd * 1.40, 2)
+                    if is_structure_holding and current_loss > -reversal_clamp:
+                        pass
+                    elif current_loss <= -abs(s.loss_time_decay_min_loss_usd):
+                        log.info(
+                            "JUGGLER TIME-DECAY CUT: Cutting stalled losing ticket %s (held %ds, loss=%.2f <= -$%.2f)",
+                            pos.ticket,
+                            int(held),
+                            current_loss,
+                            s.loss_time_decay_min_loss_usd,
+                        )
+                        await self.client.close_position(pos.ticket, price=price)
+                        self.untrack(pos.ticket)
+                        actions.append("juggler_time_decay_cut")
+                        return actions
 
 
 

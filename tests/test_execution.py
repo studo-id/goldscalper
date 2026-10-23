@@ -318,10 +318,17 @@ async def test_watchdog_time_extension_and_invalidation_cut() -> None:
     assert "juggler_dynamic_clamp" not in actions_wick
     assert len(await client.positions("XAUUSD")) == 1
 
-    # 2a-gap. Under 60s with catastrophic loss (>= 45-50 pips, e.g. -$50.00 on 0.10 lot): triggers catastrophic cut!
+    # 2a-gap. Under 60s (e.g. 35s), strict 60s immunity protects against any premature cut:
     pos.profit = -50.00
     actions_cat = await pm.manage(pos, price=2349.5, now=now, context={"decision": dec_adv})
-    assert "juggler_catastrophic_gap_cut" in actions_cat
+    assert len(actions_cat) == 0
+    assert len(await client.positions("XAUUSD")) == 1
+
+    # But once held >= 60s (e.g. 65s), loss management triggers cut for -$50.00:
+    pm._states[pos.ticket].opened_at = now - timedelta(seconds=65)
+    pos.profit = -50.00
+    actions_deep_cut = await pm.manage(pos, price=2349.5, now=now, context={"decision": dec_adv})
+    assert "watchdog_early_invalidation_cut" in actions_deep_cut or "juggler_dynamic_clamp" in actions_deep_cut
     assert await client.positions("XAUUSD") == []
 
     # Re-open position for subsequent 65s tests
@@ -719,18 +726,25 @@ async def test_position_manager_aggressive_scalper_position_awareness() -> None:
     pm.track(pos)
 
     # 1. Intra-candle noise at 20s (held < 60s) with 12 pips loss (-$6.00) on 0.05 lot:
-    # Must NOT trigger catastrophic gap cut!
+    # Under 60s immunity rule, must NOT trigger cut!
     now = utcnow()
     pm._states[pos.ticket].opened_at = now - timedelta(seconds=20)
     pos.profit = -6.00
     actions_noise = await pm.manage(pos, price=2349.0, now=now)
-    assert "juggler_catastrophic_gap_cut" not in actions_noise
+    assert len(actions_noise) == 0
     assert len(await client.positions("XAUUSD")) == 1
 
-    # 2. Genuine flash gap spike (-$15.00 = 30 pips): triggers catastrophic gap cut!
+    # 2. Even deep adverse spike (-$15.00) within 20s has strict cutloss immunity:
     pos.profit = -15.00
-    actions_gap = await pm.manage(pos, price=2348.0, now=now)
-    assert "juggler_catastrophic_gap_cut" in actions_gap
+    actions_under60 = await pm.manage(pos, price=2348.0, now=now)
+    assert len(actions_under60) == 0
+    assert len(await client.positions("XAUUSD")) == 1
+
+    # 3. Once held >= 60s (e.g. 65s), dynamic clamp activates and cuts the loss:
+    pm._states[pos.ticket].opened_at = now - timedelta(seconds=65)
+    pos.profit = -15.00  # Re-assert loss because client.positions() above mutated pos.profit
+    actions_cut = await pm.manage(pos, price=2348.0, now=now)
+    assert "juggler_dynamic_clamp" in actions_cut
     assert await client.positions("XAUUSD") == []
 
 

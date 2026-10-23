@@ -35,6 +35,37 @@ Aturan singkat:
 
 ---
 
+## 2026-10-23 — Penegakan Strict 60-Second Cutloss Immunity & Satpam Drone View Evaluasi Struktur (>=60s)
+
+**Phase / Area:** Execution Layer, Position Manager & Multi-Timeframe Satpam Drone View  
+**Status:** Done & Deployed (Akun 1 `gs-bot` & Akun 2 `gs-bot-lab`)  
+
+**Yang dikerjakan**
+- **Strict 60-Second Cutloss Immunity (Zero Cut Under 60s):**
+  - Mengisolasi fase `held < min_hold` (`min_hold = 60s`) menjadi 100% immune terhadap semua jenis cutloss (`pass`).
+  - Tidak ada cutloss jenis apapun yang diizinkan dieksekusi sebelum 60 detik berlalu (baik macro D1, catastrophic gap, dynamic clamp, time-decay, maupun watchdog invalidation).
+  - Pembentukan 1 candle utuh M1 dijamin selesai tanpa interupsi cutloss dini akibat noise wick.
+- **Unrestricted Instant Take Profit (< 60s Bebas Panen):**
+  - Seluruh mekanisme panen profit (Take Profit, Proximity Harvest, Fast Break-Even BEP+, Runner Harvest) ditempatkan secara independen di luar blok loss, sehingga tetap dapat dieksekusi seketika di detik ke berapa pun (misal detik ke-5, 15, atau 35) saat posisi dalam kondisi floating profit.
+- **Satpam Berlayer Drone View (>= 60s):**
+  - Setelah melewati batas 60 detik, evaluasi multi-timeframe berlayer (M1, M5, HTF) aktif.
+  - Selama struktur support/resistance M5 terkonfirmasi menahan (`structural_eval is not None and not structural_eval.is_hard_breached`), posisi wajib di-hold untuk memberi ruang terjadinya pantulan (*bounce*) menuju target TP.
+  - Cutloss hanya dieksekusi jika:
+    1. Terjadi *hard breach* konfirmasi body candle menembus level struktur, ATAU
+    2. HTF berlawanan arah dan struktur gagal bertahan, ATAU
+    3. Posisi melampaui batas toleransi risiko struktur (`reversal_clamp`).
+- **Eliminasi Keterikatan Terhadap Clamp Nominal Mini:**
+  - Menghilangkan pemotongan posisi prematur yang semata-mata dipicu oleh angka statik nominal kecil clamp lab (seperti -$5.44 pada clamp limit $3.50).
+
+**File tersentuh**
+- `execution/position_manager.py` — Pengondisian strict 60s cutloss immunity dan perapian Satpam Drone View evaluation `>= min_hold`.
+- `tests/test_execution.py` — Pembaruan unit test memvalidasi kekebalan cutloss < 60s dan eksekusi clamp `>= 60s`.
+
+**Verifikasi**
+- `pytest tests/test_execution.py tests/test_macro_separation.py tests/test_structural_guard.py tests/test_wave_engine.py tests/test_spk_veto.py tests/test_spk_voting.py -v` → 101 passed in 0.46s.
+
+---
+
 ## 2026-10-23 — Kalibrasi Catastrophic Gap Cut Phase 0 & Proteksi Satpam Struktur (Eliminasi Premature Cut di Bawah 60s)
 
 **Phase / Area:** Execution Layer, Phase 0 Noise Grace Period & Satpam Structural Protection  
