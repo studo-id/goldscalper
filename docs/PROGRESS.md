@@ -35,6 +35,47 @@ Aturan singkat:
 
 ---
 
+## 2026-10-23 — Separasi Peran Macro Timeframe (D1 & H4) Khusus Akun 2 Lab: Liberasi Scalper M1/M5 & Macro Safety Net
+
+**Phase / Area:** Macro Timeframe Architecture, SPK Veto Engine, Position Manager Exits & Account 2 Lab Deployment  
+**Status:** Done & Deployed (Akun 2 `gs-bot-lab`)  
+
+**Yang dikerjakan**
+- **Paradigm Shift Pemisahan Peran Timeframe:**
+  - Menghapus kewenangan D1 (`TF-D1-Macro`) dan H4 (`TF-H4-Structure`) sebagai pemberi *Entry Veto* di Akun 2 (Lab) via flag `D1_ENTRY_VETO_ENABLED=false` dan `H4_ENTRY_VETO_ENABLED=false`.
+  - Scalper M1/M5 tidak lagi di-veto atau dipenalti confidence hanya karena berada di zona premium/discount D1 atau supply/demand block H4 yang berjarak belasan hingga puluhan dollar dari micro-range M1.
+- **Reposisi D1 Khusus Macro Safety Net / Stop Loss Invalidation:**
+  - D1 difungsikan 100% sebagai jaring pengaman darurat (*invalidation cut*) via flag `MACRO_D1_SL_INVALIDATION_ENABLED=true`:
+    - Posisi BUY di-*cut* darurat seketika jika harga menembus di bawah *Previous Day Low* (`price < PDL - $0.50 buffer`).
+    - Posisi SELL di-*cut* darurat seketika jika harga menembus di atas *Previous Day High* (`price > PDH + $0.50 buffer`).
+    - Melindungi modal akun dari *one-way macro trend crash* 200-500 pips tanpa menghalangi scalping intra-day normal di dalam rentang harian.
+- **Reposisi H4 Khusus Adaptive Take-Profit Runner / Fast Harvest:**
+  - H4 difungsikan sebagai kalibrasi dinamis target TP via flag `MACRO_H4_ADAPTIVE_TP_ENABLED=true`:
+    - **Counter-H4 Scalp:** Jika posisi berlawanan dengan arah struktur H4 (misal BUY di saat H4 downtrend), TP dikunci cepat (*fast harvest*) begitu profit mencapai $2.50 - $4.00 (atau $\ge 15$ pips) untuk mengamankan profit sebelum gelombang makro membanting balik harga.
+    - **Aligned H4 Runner:** Jika posisi searah dengan struktur H4, batas runner diperluas hingga $10.00+ (atau $1.5\times$ rata-rata kemenangan harian) untuk memaksimalkan *payoff ratio*.
+- **Pembaruan Kode:**
+  - `config/settings.py`: Menambahkan 4 parameter konfigurasi `d1_entry_veto_enabled`, `h4_entry_veto_enabled`, `macro_d1_sl_invalidation_enabled`, dan `macro_h4_adaptive_tp_enabled`.
+  - `agents/divisions/timeframe/scouts.py`: `H4Structure` dan `D1Macro` mengekspos metrik `h4_highest`, `h4_lowest`, `h4_bias`, `d1_pdh`, `d1_pdl` ke `state.extra`, serta meniadakan emisi veto saat flag `*_entry_veto_enabled` bernilai `False`.
+  - `spk/veto.py`: `htf_scouts` memfilter D1 dan H4 saat flag `*_entry_veto_enabled` dimatikan; bypass evaluasi veto D1/H4 di blok `sig.veto`.
+  - `agents/orchestrator.py`: Meneruskan konfigurasi `d1_entry_veto_enabled` dan `h4_entry_veto_enabled` dari settings ke `VetoParams`.
+  - `execution/position_manager.py`: Mengimplementasikan `macro_d1_sl_invalidation_cut` dan `macro_h4_fast_harvest` / runner expansion.
+- **Unit Test Baru:**
+  - `tests/test_macro_separation.py`: 5 test suite khusus memverifikasi D1 entry veto suppression, H4 entry veto suppression, SPK veto bypass, D1 PDL/PDH invalidation cut, dan H4 counter-scalp fast harvest (100% passed).
+
+**File tersentuh**
+- `config/settings.py` — 4 parameter baru
+- `agents/divisions/timeframe/scouts.py` — Guard veto & expose metrik D1/H4
+- `spk/veto.py` — Filtering htf_scouts & bypass veto loop
+- `agents/orchestrator.py` — Pass settings ke VetoParams
+- `execution/position_manager.py` — Macro D1 SL cut & H4 adaptive TP
+- `tests/test_macro_separation.py` — Unit test suite baru
+- `docs/PROGRESS.md` — Pencatatan log worklog
+
+**Verifikasi**
+- `pytest tests/test_macro_separation.py tests/test_timeframe_division.py tests/test_spk_veto.py tests/test_execution.py -v` → 104 passed in 0.65s
+
+---
+
 ## 2026-10-23 — Resolusi Deadlock Bilateral 8 Jam & Perbaikan Wave Engine Stale State (Akun 1 & Akun 2)
 
 **Phase / Area:** SPK Veto Engine, Core Wave Engine & Anti-Deadlock Resolution  

@@ -104,6 +104,10 @@ class Settings(BaseSettings):
     overnight_flat_utc_enabled: bool = True   # Flag open intraday trades for flat exit before 21:00 UTC
     d1_macro_bias_veto_enabled: bool = True   # Veto opposing trades when D1 Macro has clear confirmed trend
     d1_macro_hard_veto_enabled: bool = False  # False: D1 Macro extreme zones are soft confidence penalties, not hard vetoes
+    d1_entry_veto_enabled: bool = True        # If False (Akun 2 Lab), D1 is completely removed from entry veto (SL only)
+    h4_entry_veto_enabled: bool = True        # If False (Akun 2 Lab), H4 is completely removed from entry veto (Adaptive TP only)
+    macro_d1_sl_invalidation_enabled: bool = True # Hard cut if price breaks PDH (sell) or PDL (buy)
+    macro_h4_adaptive_tp_enabled: bool = True     # Dynamic runner target if aligned with H4, quick scalp if counter-H4
 
     # --- Micro-SR & Anti-Chasing Veto (M1 Confirmation Range) ---
     micro_sr_veto_enabled: bool = True

@@ -338,6 +338,47 @@ class PositionManager:
                 actions.append("juggler_catastrophic_gap_cut")
                 return actions
 
+            # --- Macro D1 Safety Net / Stop Loss Invalidation ---
+            # If enabled, protects against catastrophic macro trend day breakdowns:
+            # - BUY position is invalidated if current price breaches below Previous Day Low (PDL - $0.50 buffer)
+            # - SELL position is invalidated if current price breaches above Previous Day High (PDH + $0.50 buffer)
+            if s.macro_d1_sl_invalidation_enabled:
+                d1_pdh = None
+                d1_pdl = None
+                if state_obj and getattr(state_obj, "extra", None) and isinstance(state_obj.extra, dict):
+                    d1_pdh = state_obj.extra.get("d1_pdh")
+                    d1_pdl = state_obj.extra.get("d1_pdl")
+                if (d1_pdh is None or d1_pdl is None) and state_obj and getattr(state_obj, "frames", None):
+                    d1_bars = state_obj.frames.get("D1")
+                    if d1_bars and d1_bars.n >= 1:
+                        prev = -2 if d1_bars.n >= 2 else -1
+                        d1_pdh = d1_bars.highs[prev]
+                        d1_pdl = d1_bars.lows[prev]
+
+                d1_cut = False
+                d1_cut_reason = ""
+                d1_buffer = 0.50  # 5 pips buffer to prevent false wick trigger
+                if pos.is_long and d1_pdl is not None and price < (d1_pdl - d1_buffer):
+                    d1_cut = True
+                    d1_cut_reason = f"Price {price:.2f} broken below Previous Day Low (PDL {d1_pdl:.2f})"
+                elif not pos.is_long and d1_pdh is not None and price > (d1_pdh + d1_buffer):
+                    d1_cut = True
+                    d1_cut_reason = f"Price {price:.2f} broken above Previous Day High (PDH {d1_pdh:.2f})"
+
+                if d1_cut:
+                    log.warning(
+                        "MACRO D1 SL INVALIDATION CUT: Cutting ticket %s (%s %.2f, loss=%.2f) — %s",
+                        pos.ticket,
+                        pos.side,
+                        pos.volume,
+                        current_loss,
+                        d1_cut_reason,
+                    )
+                    await self.client.close_position(pos.ticket, price=price)
+                    self.untrack(pos.ticket)
+                    actions.append("macro_d1_sl_invalidation_cut")
+                    return actions
+
             # 3. Phase 1: Satpam Structural Invalidation (Anti-Wick Shield Protected)
             # Cut only on confirmed hard breach (not on minor wick probe < 45s)
             if structural_eval is not None and structural_eval.is_hard_breached:
@@ -533,6 +574,44 @@ class PositionManager:
             # When price spikes into a solid runner profit (>= $7.50 or 1.25x avg win), harvest IMMEDIATELY!
             live_avg_win = float(ctx.get("live_avg_win", 0.0) or 0.0)
             runner_target = max(7.50, round(live_avg_win * 1.25, 2)) if live_avg_win >= 2.0 else 7.50
+
+            # Macro H4 Adaptive TP Calibration:
+            if s.macro_h4_adaptive_tp_enabled:
+                h4_bias_val = None
+                state_obj = ctx.get("state")
+                if state_obj and getattr(state_obj, "extra", None) and isinstance(state_obj.extra, dict):
+                    h4_bias_val = state_obj.extra.get("h4_bias")
+
+                # Counter-H4 Scalp: If trade opposes H4 structure, harvest fast ($2.50 - $4.00)
+                pip_val = float(pos.volume * 10.0)
+                fast_harvest_usd = max(2.50, round(15.0 * pip_val, 2))
+                is_counter_h4 = (
+                    (pos.is_long and h4_bias_val == "BEARISH")
+                    or (not pos.is_long and h4_bias_val == "BULLISH")
+                )
+                if is_counter_h4 and current_profit >= fast_harvest_usd:
+                    log.info(
+                        "MACRO H4 FAST SCALP HARVEST: Ticket %s locked profit=+$%.2f >= $%.2f (counter-H4 scalp, H4=%s)",
+                        pos.ticket,
+                        current_profit,
+                        fast_harvest_usd,
+                        h4_bias_val,
+                    )
+                    await self.client.close_position(pos.ticket, price=price)
+                    self.untrack(pos.ticket)
+                    actions.append("macro_h4_fast_harvest")
+                    pyr_actions = await self._handle_orphan_pyramid_positions(pos, ctx)
+                    actions.extend(pyr_actions)
+                    return actions
+
+                # Aligned with H4 Structure: Expand runner target to 1.5x avg win (minimum $10.00)
+                is_aligned_h4 = (
+                    (pos.is_long and h4_bias_val == "BULLISH")
+                    or (not pos.is_long and h4_bias_val == "BEARISH")
+                )
+                if is_aligned_h4:
+                    runner_target = max(10.00, round(live_avg_win * 1.50, 2)) if live_avg_win >= 2.0 else 10.00
+
             if s.juggler_enabled and current_profit >= runner_target:
                 log.info(
                     "JUGGLER RUNNER HARVEST: Ticket %s held %ds with solid profit=+$%.2f >= $%.2f",

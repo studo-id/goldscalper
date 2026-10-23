@@ -36,6 +36,8 @@ class VetoParams:
     d1_macro_hard_veto_enabled: bool = False
     d1_macro_soft_penalty: float = 0.15
     counter_trend_defense_block_enabled: bool = False
+    d1_entry_veto_enabled: bool = True
+    h4_entry_veto_enabled: bool = True
 
 
 @dataclass
@@ -81,10 +83,19 @@ def evaluate(
     h1_sig = next((s for s in signals if s.agent_id == "TF-H1-Regime"), None)
     d1_sig = next((s for s in signals if s.agent_id == "TF-D1-Macro"), None)
 
+    d1_entry_veto_on = getattr(p, "d1_entry_veto_enabled", getattr(default_settings, "d1_entry_veto_enabled", True))
+    h4_entry_veto_on = getattr(p, "h4_entry_veto_enabled", getattr(default_settings, "h4_entry_veto_enabled", True))
+
     # Intermediate-to-Higher Timeframe Complex (M15, M30, H1, H4, D1)
+    allowed_htf_ids = {"TF-M15-Liquidity", "TF-M30-Momentum", "TF-H1-Regime"}
+    if h4_entry_veto_on:
+        allowed_htf_ids.add("TF-H4-Structure")
+    if d1_entry_veto_on:
+        allowed_htf_ids.add("TF-D1-Macro")
+
     htf_scouts = [
         s for s in signals
-        if s.agent_id in ("TF-M15-Liquidity", "TF-M30-Momentum", "TF-H1-Regime", "TF-H4-Structure", "TF-D1-Macro")
+        if s.agent_id in allowed_htf_ids
     ]
     htf_bear_count = sum(
         1 for s in htf_scouts
@@ -102,7 +113,7 @@ def evaluate(
         h1_bear = True
 
     d1_bear = False
-    if d1_sig is not None:
+    if d1_entry_veto_on and d1_sig is not None:
         d1_bear = (d1_sig.vote < 0 or "BEARISH" in (d1_sig.reasoning or "").upper())
 
     macro_bearish = h1_bear and d1_bear
@@ -116,7 +127,7 @@ def evaluate(
         h1_bull = True
 
     d1_bull = False
-    if d1_sig is not None:
+    if d1_entry_veto_on and d1_sig is not None:
         d1_bull = (d1_sig.vote > 0 or "BULLISH" in (d1_sig.reasoning or "").upper())
         if "BEARISH" in (d1_sig.reasoning or "").upper():
             d1_bull = False
@@ -352,6 +363,11 @@ def evaluate(
 
     for sig in signals:
         if sig.veto in (blocking_flag, VETO_ALL):
+            if sig.agent_id == "TF-D1-Macro" and not d1_entry_veto_on:
+                continue
+            if sig.agent_id == "TF-H4-Structure" and not h4_entry_veto_on:
+                continue
+
             if sig.veto == VETO_ALL:
                 m1_active = any(
                     s.agent_id == "TF-M1-Sniper"
