@@ -480,6 +480,15 @@ def evaluate(
                 or (direction == ACTION_SELL and state and hasattr(state, "extra") and isinstance(state.extra, dict) and state.extra.get("session_waterfall_bull"))
             )
             if is_session_violence:
+                # Anti-Deadlock in Sideways/Consolidation:
+                # If market has settled into a range (sideways/ping-pong/deadlock) and M1 Sniper or multi-division
+                # consensus confirms a localized reversal/ping-pong bounce, demote stale session momentum to soft penalty!
+                if (sideways_mode or is_ping_pong or htf_deadlock) and can_demote_sideway_barrier:
+                    result.confidence_delta -= 0.20
+                    result.notes.append(
+                        f"SESSION VIOLENCE GUARD softened to confidence penalty (-0.20) by tactical micro confluence ({sig.agent_id}:{sig.reasoning})"
+                    )
+                    continue
                 return VetoResult(
                     hard=True,
                     reason=f"SESSION VIOLENCE GUARD: {sig.agent_id} blocked {direction} during active session momentum ({sig.reasoning})",

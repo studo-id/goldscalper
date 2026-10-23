@@ -140,3 +140,41 @@ def test_wave_engine_blocks_counter_trend_chaining() -> None:
     assert cap2.can_chain is False
     assert "single-shot only" in cap2.reason
 
+
+def test_wave_engine_resets_idle_chain_count_on_evaluation() -> None:
+    """Ensure that after idle_reset_s passes, chain_count resets to 0 during evaluation."""
+    engine = DataDrivenWaveEngine(idle_reset_s=150)
+    now = 1000.0
+
+    # Trade 1 and 2 win
+    engine.record_trade_opened("SELL", price=4130.0, timestamp=now)
+    engine.record_trade_opened("SELL", price=4125.0, timestamp=now + 20.0)
+    engine.record_trade_closed(is_win=True, direction="SELL", timestamp=now + 30.0)
+    assert engine.chain_count == 2
+
+    rows = [(2350.0, 2351.0, 2349.5, 2350.5) for _ in range(30)]
+    frames = {"M5": _frame("M5", rows), "M1": _frame("M1", rows)}
+    st = SharedState(symbol="XAUUSD", frames=frames)
+
+    # 400 seconds later (> idle_reset_s=150s), evaluating wave must reset chain_count to 0
+    cap = engine.evaluate_wave(st, candidate_direction="SELL", current_price=2350.0, timestamp=now + 400.0)
+    assert engine.chain_count == 0
+    assert engine.current_direction is None
+    assert cap.can_chain is True
+
+
+def test_wave_engine_directional_extension_does_not_penalize_pullback() -> None:
+    """Ensure that a SELL candidate when price is above EMA9 (pullback to resistance) has 0.0 extension."""
+    engine = DataDrivenWaveEngine()
+    # M5 rows around 4000.0 (EMA9 ~ 4000.0)
+    rows = [(4000.0, 4002.0, 3998.0, 4000.0) for _ in range(30)]
+    frames = {"M5": _frame("M5", rows), "M1": _frame("M1", rows)}
+    st = SharedState(symbol="XAUUSD", frames=frames)
+
+    # Price has rallied to 4015.0 (above EMA9 4000.0). For a SELL, this is a pullback to resistance!
+    cap_sell = engine.evaluate_wave(st, candidate_direction="SELL", current_price=4015.0)
+    assert cap_sell.extension_atr == 0.0
+    assert cap_sell.can_chain is True
+    assert cap_sell.capacity == CAPACITY_HEALTHY
+
+

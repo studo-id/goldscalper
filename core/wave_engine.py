@@ -170,6 +170,12 @@ class DataDrivenWaveEngine:
         dir_norm = candidate_direction.upper()
         now = timestamp if timestamp is not None else time.time()
 
+        # 0. Idle Expiration: Reset wave state if idle_reset_s has elapsed since last trade
+        if self.last_trade_time > 0 and (now - self.last_trade_time > self.idle_reset_s):
+            self.current_direction = None
+            self.origin_price = None
+            self.chain_count = 0
+
         # 1. Check Broken Wave Cooldown
         in_broken_cd, rem_cd = self.is_in_broken_cooldown(dir_norm, now)
         if in_broken_cd:
@@ -202,11 +208,20 @@ class DataDrivenWaveEngine:
         atr_m5 = max(0.60, atr(b_m5.highs, b_m5.lows, b_m5.closes, 14))
 
         # 2. Compute Wave Extension Distance
+        # When actively chaining in the same wave (chain_count >= 1), measure displacement from origin_price
         ema9 = ema_last(b_m5.closes, 9)
-        if self.current_direction == dir_norm and self.origin_price is not None:
+        if self.current_direction == dir_norm and self.origin_price is not None and self.chain_count >= 1:
             dist = abs(price - self.origin_price)
         else:
-            dist = abs(price - ema9)
+            # Fresh initial entry: measure directional extension away from M5 EMA9.
+            # Entering SELL above EMA9 is a pullback discount (dist=0); entering BUY below EMA9 is a pullback discount (dist=0).
+            # Overextension only occurs if chasing already-departed momentum in that trade's direction.
+            if dir_norm == "BUY":
+                dist = max(0.0, price - ema9)
+            elif dir_norm == "SELL":
+                dist = max(0.0, ema9 - price)
+            else:
+                dist = 0.0
 
         extension_atr = dist / atr_m5
 
@@ -256,15 +271,27 @@ class DataDrivenWaveEngine:
 
         # 4. Data-Driven Classification
         if extension_atr > 2.50 or (extension_atr > 2.0 and has_counter_wick):
+            if self.chain_count >= 1:
+                return WaveCapacity(
+                    capacity=CAPACITY_EXHAUSTED,
+                    direction=dir_norm,
+                    chain_count=self.chain_count,
+                    extension_atr=extension_atr,
+                    is_exhausted=True,
+                    can_chain=False,
+                    size_multiplier=0.0,
+                    reason=f"Wave exhausted by data projection ({extension_atr:.1f}x ATR from base)",
+                )
+            # Initial entry into extended trend: allow with defensive sizing
             return WaveCapacity(
-                capacity=CAPACITY_EXHAUSTED,
+                capacity=CAPACITY_MATURE,
                 direction=dir_norm,
                 chain_count=self.chain_count,
                 extension_atr=extension_atr,
-                is_exhausted=True,
-                can_chain=False,
-                size_multiplier=0.0,
-                reason=f"Wave exhausted by data projection ({extension_atr:.1f}x ATR from base)",
+                is_exhausted=False,
+                can_chain=True,
+                size_multiplier=0.50,
+                reason=f"Initial entry into extended trend ({extension_atr:.1f}x ATR), continuing with protective 0.50x sizing",
             )
 
         if extension_atr > 1.80:

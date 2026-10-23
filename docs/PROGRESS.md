@@ -35,6 +35,45 @@ Aturan singkat:
 
 ---
 
+## 2026-10-23 — Resolusi Deadlock Bilateral 8 Jam & Perbaikan Wave Engine Stale State (Akun 1 & Akun 2)
+
+**Phase / Area:** SPK Veto Engine, Core Wave Engine & Anti-Deadlock Resolution  
+**Status:** Done & Deployed (Akun 1 `gs-bot` & Akun 2 `gs-bot-lab`)  
+
+**Yang dikerjakan**
+- **Forensik Pembekuan Trading 7-8 Jam (480+ Menit Tanpa Entry):**
+  - Live log `gs-bot` dan `gs-bot-lab` menunjukkan bot idle selama 480 menit berturut-turut.
+  - SPK Chief sebenarnya berkonsensus kuat untuk mengeksekusi `SELL` (skor `-3.1992`, bobot sell 7.20 vs buy 4.00) di area resistensi M1 ($4019.68).
+  - Namun order gagal dieksekusi karena 2 bug struktural:
+    1. **Bug Directionless Wave Extension di Akun 1:**
+       `core/wave_engine.py` menghitung ekstensi gelombang menggunakan `dist = abs(price - ema9)` tanpa mempedulikan arah transaksi! Saat harga memantul naik ke puncak resistensi ($4019) dan EMA9 M5 berada di $4008, jarak $11 USD dihitung sebagai "ekstensi 2.7x ATR", sehingga kandidat SELL diblokir oleh `VETO_WAVE: Wave exhausted by data projection (2.7x ATR from base)`. Padahal bagi posisi SELL, harga di atas EMA9 adalah diskon pullback terbaik!
+    2. **Bug Stale Wave Chain Count di Akun 2:**
+       Saat trade sebelumnya menang (win), `self.chain_count` tidak pernah direset saat bot idle. Meskipun sudah berlalu 390 menit (> `idle_reset_s = 150s`), `chain_count` tetap bernilai 2. Akibatnya, pre-trade evaluation di `agents/orchestrator.py` menganggap trade baru sebagai `DEFENSE_CHAIN_3` mode dan menuntut confidence mustahil ($\ge 0.65$), memblokir semua order dengan `LOW CONFIDENCE: 0.50 < 0.65`.
+    3. **Deadlock Bilateral `Struct-Session` vs `TF-H1-Regime`:**
+       Di sesi malam, drop -$8 di sesi Asia mengunci `Struct-Session (VETO_BUY)` secara absolut lewat `SESSION VIOLENCE GUARD`. Di saat bersamaan, `TF-H1-Regime` mengunci `VETO_SELL` karena harga berada di 20% dasar rentang 24 jam. Kedua pintu terkunci rapat selama berjam-jam meskipun pasar M1 sudah berkonsolidasi rapat dalam rentang $10-$12.
+- **Implementasi Solusi & Perbaikan:**
+  - `core/wave_engine.py`:
+    - Menambahkan reset otomatis `chain_count = 0`, `current_direction = None`, `origin_price = None` pada awal `evaluate_wave()` jika `now - last_trade_time > idle_reset_s`.
+    - Mengubah formula ekstensi menjadi directional: untuk BUY `max(0.0, price - ema9)`, untuk SELL `max(0.0, ema9 - price)`. Pullback ke resistensi menghasilkan `dist = 0.0` (tidak ada penalti overextended).
+    - Memisahkan initial entry (`chain_count == 0`) dari continuation chaining (`chain_count >= 1`). Initial entry tidak pernah di-hard-veto oleh data projection; hanya diberikan sizing defensif (0.50x).
+  - `spk/veto.py`:
+    - Menambahkan demosi `SESSION VIOLENCE GUARD` ke soft penalty (-0.20) saat pasar berkonsolidasi (sideways/ping-pong/deadlock) dengan konfirmasi tactical sniper M1/M5, membebaskan deadlock bilateral.
+  - Menambahkan unit test komprehensif di `tests/test_wave_engine.py` (idle reset & directional pullback).
+- **Deployment ke Server:**
+  - Mengirim berkas `core/wave_engine.py`, `spk/veto.py`, `tests/test_wave_engine.py`, dan `docs/PROGRESS.md` ke VPS.
+  - Me-restart container `gs-bot` dan `gs-bot-lab`.
+
+**File tersentuh**
+- `core/wave_engine.py` — Reset idle state & directional EMA9 extension calculation
+- `spk/veto.py` — Anti-deadlock demotion untuk session violence pada pasar konsolidasi
+- `tests/test_wave_engine.py` — 2 unit test baru (idle reset & directional pullback test)
+- `docs/PROGRESS.md` — Dokumentasi kronologis progres
+
+**Verifikasi**
+- `pytest tests/test_spk_veto.py tests/test_wave_engine.py tests/test_execution.py tests/test_orchestrator.py` → 91 passed in 0.47s (100% green)
+
+---
+
 ## 2026-10-23 — Dynamic Loss-Proportional Cooldown & Clamp Ceiling Bounding Deployment (Akun 1 & Akun 2)
 
 **Phase / Area:** Execution Engine & Risk Division / Dynamic Cooldown & Clamp Protection  
