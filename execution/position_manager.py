@@ -358,10 +358,10 @@ class PositionManager:
                 d1_cut = False
                 d1_cut_reason = ""
                 d1_buffer = 0.50  # 5 pips buffer to prevent false wick trigger
-                if pos.is_long and d1_pdl is not None and price < (d1_pdl - d1_buffer):
+                if pos.is_long and d1_pdl is not None and pos.price_open >= d1_pdl and price < (d1_pdl - d1_buffer):
                     d1_cut = True
                     d1_cut_reason = f"Price {price:.2f} broken below Previous Day Low (PDL {d1_pdl:.2f})"
-                elif not pos.is_long and d1_pdh is not None and price > (d1_pdh + d1_buffer):
+                elif not pos.is_long and d1_pdh is not None and pos.price_open <= d1_pdh and price > (d1_pdh + d1_buffer):
                     d1_cut = True
                     d1_cut_reason = f"Price {price:.2f} broken above Previous Day High (PDH {d1_pdh:.2f})"
 

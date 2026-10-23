@@ -35,6 +35,40 @@ Aturan singkat:
 
 ---
 
+## 2026-10-23 — Forensik & Resolusi Darurat Akun 2 (Lab): Cut 1-Detik Akibat Invalidation Static PDL & Pemulihan Veto D1/H4
+
+**Phase / Area:** Execution Layer, Macro SL Invalidation Guard & Account 2 Lab Recovery  
+**Status:** Done & Safely Reverted / Deployed (Akun 2 `gs-bot-lab`)  
+
+**Yang dikerjakan**
+- **Forensik Mendalam Rentetan Loss di Akun 2 (Lab):**
+  1. **Fenomena "Cut 1 Detik" pada Posisi BUY:**
+     - Log live `gs-bot-lab` menunjukkan order BUY tiket `4329460650` (dan 6 trade lainnya) dibuka pada $4015.85, namun **0.6 detik kemudian langsung di-cut** oleh `MACRO D1 SL INVALIDATION CUT`!
+     - *Akar Masalah:* Low kemarin (PDL) berada di $4020.94. Hari ini harga emas berada di rentang $4000 - $4016 (seluruh pergerakan hari ini SUDAH berada jauh di bawah PDL kemarin). Karena kode invalidation sebelumnya tidak mengecek apakah entry berada di atas PDL, setiap order BUY yang dibuka langsung dieksekusi cutloss seketika pada tick berikutnya (`4015.61 < 4020.44`), menelan spread loss -0.70 USC s/d -0.80 USC berulang kali!
+  2. **Fenomena "Sell di Dasar Lembah" Akibat Hilangnya Veto D1/H4:**
+     - Ketika entry veto D1 dan H4 dimatikan di Akun 2 Lab (`D1_ENTRY_VETO_ENABLED=false`, `H4_ENTRY_VETO_ENABLED=false`), bot kehilangan rem institusional saat harga berada di area *Extreme Discount* D1 ($4004) dan *Demand Block* H4.
+     - Akibatnya, bot mengeksekusi SELL di $4004.08 (tepat di dasar lembah sesi Tokyo), lalu tersapu oleh pembalikan arah/bounce hingga $4010 - $4024 (Tokyo rocket rally), menghasilkan loss -9.40 USC, -9.00 USC, dan -6.20 USC.
+- **Tindakan Pemulihan Cepat & Perbaikan Arsitektur:**
+  - **Revert Konfigurasi Akun 2 Lab:**
+    - Mengembalikan `D1_ENTRY_VETO_ENABLED=true` dan `H4_ENTRY_VETO_ENABLED=true` di `.env.lab` agar bot kembali memiliki perlindungan mutlak anti-sell di dasar diskon dan anti-buy di pucuk premium.
+    - Mematikan `MACRO_D1_SL_INVALIDATION_ENABLED=false` untuk menghentikan seketika fenomena cut 1 detik.
+    - Restart dan recreate container `gs-bot-lab` via `docker compose up -d bot-lab`.
+  - **Perbaikan Hard Guard di `execution/position_manager.py`:**
+    - Menambahkan syarat mutlak bahwa SL invalidation PDL/PDH HANYA boleh aktif jika posisi dibuka di dalam rentang dan tertembus selama trade berjalan:
+      `pos.price_open >= d1_pdl and price < (d1_pdl - d1_buffer)` untuk BUY, dan
+      `pos.price_open <= d1_pdh and price > (d1_pdh + d1_buffer)` untuk SELL.
+    - Jika harga saat entry memang sudah berada di luar batas PDH/PDL, invalidation macro tidak akan memotong trade secara konyol.
+
+**File tersentuh**
+- `.env.lab` — Revert `D1_ENTRY_VETO_ENABLED=true`, `H4_ENTRY_VETO_ENABLED=true`, matikan `MACRO_D1_SL_INVALIDATION_ENABLED=false`
+- `execution/position_manager.py` — Hard guard `pos.price_open >= d1_pdl` / `<= d1_pdh`
+- `docs/PROGRESS.md` — Pencatatan kronologis
+
+**Verifikasi**
+- `python scratch/check_macro.py` → `[TF-D1-Macro] veto=VETO_SELL` aktif kembali melindungi dasar lembah, bot tidak lagi cut 1 detik, aman terkendali.
+
+---
+
 ## 2026-10-23 — Separasi Peran Macro Timeframe (D1 & H4) Khusus Akun 2 Lab: Liberasi Scalper M1/M5 & Macro Safety Net
 
 **Phase / Area:** Macro Timeframe Architecture, SPK Veto Engine, Position Manager Exits & Account 2 Lab Deployment  
