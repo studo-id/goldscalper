@@ -35,9 +35,10 @@ class TimeframeAgent(BaseAgent):
     htf = False
     min_bars = 2
 
-    def __init__(self) -> None:
+    def __init__(self, settings: Any = None) -> None:
         super().__init__()
         self.division = DIVISION
+        self.s = settings or default_settings
         weight_overrides = {
             "TF-M1-Sniper": getattr(default_settings, "timeframe_weight_m1_sniper", LTF_WEIGHT),
             "TF-M5-Inspector": getattr(default_settings, "timeframe_weight_m5_inspector", LTF_WEIGHT),

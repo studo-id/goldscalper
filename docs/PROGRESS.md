@@ -35,6 +35,31 @@ Aturan singkat:
 
 ---
 
+## 2026-10-23 — Eliminasi Hard Veto D1 pada Scalper (Opsi A: D1 Soft Penalty Only & Proteksi Ekstrem oleh Satpam M5 / S-R M1)
+
+**Phase / Area:** SPK Veto Engine, Timeframe Scouts (`TF-D1-Macro`), Account 2 (Lab) Calibration  
+**Status:** Done & Deployed (Akun 2 `gs-bot-lab`)  
+
+**Yang dikerjakan**
+- **Eliminasi Hard Veto D1 (Opsi A):**
+  - Mengonfigurasi `D1_ENTRY_VETO_ENABLED=false` dan `D1_MACRO_BIAS_VETO_ENABLED=false` pada Akun 2 Lab.
+  - Memperbaiki agen `D1Macro` dan `H4Structure` di `agents/divisions/timeframe/scouts.py` agar mengacu pada `self.s` (instance runtime settings), bukan fallback statis `default_settings`.
+  - Mengisolasi D1 sehingga **TIDAK BISA mengeluarkan Hard Veto** untuk membatalkan entry scalping (`veto = None`). D1 hanya menyumbang bobot voting suara biasa (soft confidence penalty) dalam konsensus 37 agen.
+  - Memastikan flag `d1_extreme_zone` di `spk/veto.py` dibypass saat `d1_entry_veto_on` berstatus false.
+- **Pendelegasian Proteksi Boundary Ekstrem:**
+  - Proteksi anti-suicide (larangan sell di dasar support / buy di pucuk resisten) sepenuhnya dipercayakan kepada satpam lokal real-time: `Tech-SupportResistance` (S/R M1) dan `TF-M5-Inspector` (M5 structure), membebaskan scalper dari paralisis candle harian D1 kemarin.
+
+**File tersentuh**
+- `agents/divisions/timeframe/base.py` — Penambahan atribut `self.s` pada `TimeframeAgent`.
+- `agents/divisions/timeframe/scouts.py` — Pengondisian `d1_entry_veto_enabled` dan `d1_macro_bias_veto` menggunakan `self.s`.
+- `spk/veto.py` — Bypass flag `d1_extreme_zone` saat `d1_entry_veto_on` false.
+- `.env.lab` (Server) — Menetapkan `D1_ENTRY_VETO_ENABLED=false` dan `D1_MACRO_BIAS_VETO_ENABLED=false`.
+
+**Verifikasi**
+- `pytest tests/test_execution.py tests/test_macro_separation.py tests/test_structural_guard.py tests/test_wave_engine.py tests/test_spk_veto.py tests/test_spk_voting.py tests/test_timeframe_division.py -v` → 125 passed in 0.56s.
+
+---
+
 ## 2026-10-23 — Penegakan Strict 60-Second Cutloss Immunity & Satpam Drone View Evaluasi Struktur (>=60s)
 
 **Phase / Area:** Execution Layer, Position Manager & Multi-Timeframe Satpam Drone View  

@@ -440,7 +440,7 @@ class H4Structure(TimeframeAgent):
         supply_zone_low = highest - (H4_BLOCK_FRACTION * h4_range)
         demand_zone_high = lowest + (H4_BLOCK_FRACTION * h4_range)
 
-        h4_veto_enabled = getattr(default_settings, "h4_entry_veto_enabled", True)
+        h4_veto_enabled = getattr(self.s, "h4_entry_veto_enabled", getattr(default_settings, "h4_entry_veto_enabled", True))
         veto: str | None = None
         if h4_veto_enabled:
             if c >= supply_zone_low:
@@ -497,7 +497,7 @@ class D1Macro(TimeframeAgent):
         premium_thresh = pdh - (D1_EXTREME_FRACTION * macro_range)
         discount_thresh = pdl + (D1_EXTREME_FRACTION * macro_range)
 
-        d1_entry_veto_enabled = getattr(default_settings, "d1_entry_veto_enabled", True)
+        d1_entry_veto_enabled = getattr(self.s, "d1_entry_veto_enabled", getattr(default_settings, "d1_entry_veto_enabled", True))
 
         veto: str | None = None
         if c >= premium_thresh:
@@ -521,7 +521,7 @@ class D1Macro(TimeframeAgent):
         # Institutional Top-Down Rule:
         # If D1 macro bias is confirmed BULLISH -> VETO_SELL (strictly no shorts into daily uptrend).
         # If D1 macro bias is confirmed BEARISH -> VETO_BUY (strictly no longs into daily downtrend).
-        d1_macro_bias_veto = getattr(default_settings, "d1_macro_bias_veto_enabled", True)
+        d1_macro_bias_veto = getattr(self.s, "d1_macro_bias_veto_enabled", getattr(default_settings, "d1_macro_bias_veto_enabled", True))
         if veto is None and d1_entry_veto_enabled and d1_macro_bias_veto:
             if bias == "BULLISH" and vote == VOTE_BUY:
                 veto = VETO_SELL

@@ -662,7 +662,7 @@ def evaluate(
             result.confidence_delta -= 0.05
             result.notes.append(f"Wave is mature ({wave_cap.extension_atr:.1f}x ATR)")
 
-    if state.flag("d1_extreme_zone", False):
+    if state.flag("d1_extreme_zone", False) and d1_entry_veto_on:
         if htf_deadlock or is_ping_pong or sideways_mode:
             result.confidence_delta -= p.htf_conflict_penalty
             result.notes.append("D1 extreme zone demoted to soft penalty for sideways ping-pong")
